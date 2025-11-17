@@ -1,0 +1,14 @@
+[watch]
+ignore_paths = [
+    "**/node_modules/**",
+    "**/__pycache__/**",
+    "**/.git/**",
+    "**/.pytest_cache/**",
+    "**/.venv/**",
+    "**/ml-models/**",
+    "**/mlruns/**",
+    "**/backups/**",
+    "**/logs/**",
+    "**/dist/**",
+    "**/build/**"
+]

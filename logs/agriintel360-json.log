@@ -1,0 +1,326 @@
+{"asctime": "2025-10-16 17:55:29,805", "name": "app", "levelname": "INFO", "message": "Logging setup complete. Level: INFO"}
+{"asctime": "2025-10-16 17:55:29,809", "name": "uvicorn.error", "levelname": "INFO", "message": "Application startup complete."}
+{"asctime": "2025-10-16 17:55:32,088", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 17:55:32,100", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0133s"}
+{"asctime": "2025-10-16 17:55:32,108", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:40032 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:55:47,056", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 17:55:47,076", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0194s"}
+{"asctime": "2025-10-16 17:55:47,089", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:43754 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:55:58,656", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 17:55:58,666", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0096s"}
+{"asctime": "2025-10-16 17:55:58,672", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:35400 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:56:02,054", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 17:56:02,060", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0058s"}
+{"asctime": "2025-10-16 17:56:02,065", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:43520 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:56:17,075", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 17:56:17,102", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0274s"}
+{"asctime": "2025-10-16 17:56:17,111", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:51622 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:56:29,050", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 17:56:29,062", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0127s"}
+{"asctime": "2025-10-16 17:56:29,074", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:48312 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:56:32,052", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 17:56:32,069", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0176s"}
+{"asctime": "2025-10-16 17:56:32,080", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:51634 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:56:47,049", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 17:56:47,057", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0084s"}
+{"asctime": "2025-10-16 17:56:47,066", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:39656 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:56:59,968", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 17:56:59,997", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0289s"}
+{"asctime": "2025-10-16 17:57:00,053", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:38518 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:57:02,057", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 17:57:02,069", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0121s"}
+{"asctime": "2025-10-16 17:57:02,082", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:49220 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:57:09,272", "name": "uvicorn.error", "levelname": "INFO", "message": "Shutting down"}
+{"asctime": "2025-10-16 17:57:09,378", "name": "uvicorn.error", "levelname": "INFO", "message": "Waiting for application shutdown."}
+{"asctime": "2025-10-16 17:57:09,381", "name": "uvicorn.error", "levelname": "INFO", "message": "Application shutdown complete."}
+{"asctime": "2025-10-16 17:57:09,384", "name": "uvicorn.error", "levelname": "INFO", "message": "Finished server process [140]", "color_message": "Finished server process [\u001b[36m%d\u001b[0m]"}
+{"asctime": "2025-10-16 17:57:37,667", "name": "app", "levelname": "INFO", "message": "Logging setup complete. Level: INFO"}
+{"asctime": "2025-10-16 17:57:37,673", "name": "uvicorn.error", "levelname": "INFO", "message": "Application startup complete."}
+{"asctime": "2025-10-16 17:57:47,049", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 17:57:47,054", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0052s"}
+{"asctime": "2025-10-16 17:57:47,057", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:46452 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:57:52,519", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 17:57:52,526", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0069s"}
+{"asctime": "2025-10-16 17:57:52,530", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:58946 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:58:02,039", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 17:58:02,052", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0129s"}
+{"asctime": "2025-10-16 17:58:02,065", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:57860 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:58:17,039", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 17:58:17,048", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0084s"}
+{"asctime": "2025-10-16 17:58:17,051", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:53252 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:58:22,703", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 17:58:22,711", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0072s"}
+{"asctime": "2025-10-16 17:58:22,716", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:40798 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:58:32,036", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 17:58:32,041", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0054s"}
+{"asctime": "2025-10-16 17:58:32,044", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:59720 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:58:47,036", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 17:58:47,046", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0091s"}
+{"asctime": "2025-10-16 17:58:47,055", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:49896 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:58:53,171", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 17:58:53,182", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0113s"}
+{"asctime": "2025-10-16 17:58:53,190", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:44252 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:58:57,826", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.1:56096 - \"OPTIONS /reports/templates HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 17:58:57,834", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.1:56054 - \"OPTIONS /reports?per_page=50 HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 17:58:57,836", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.1:56070 - \"OPTIONS /reports/templates HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 17:58:57,840", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.1:56068 - \"OPTIONS /reports?per_page=50 HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 17:59:02,035", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 17:59:02,043", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0086s"}
+{"asctime": "2025-10-16 17:59:02,052", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:53390 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:59:17,037", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 17:59:17,043", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0067s"}
+{"asctime": "2025-10-16 17:59:17,047", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:36930 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:59:23,419", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 17:59:23,428", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0090s"}
+{"asctime": "2025-10-16 17:59:23,438", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:40128 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:59:32,028", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 17:59:32,043", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0153s"}
+{"asctime": "2025-10-16 17:59:32,056", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:38966 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:59:47,028", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 17:59:47,034", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0060s"}
+{"asctime": "2025-10-16 17:59:47,038", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:46566 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 17:59:53,707", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 17:59:53,738", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0312s"}
+{"asctime": "2025-10-16 17:59:53,755", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:59754 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:00:02,025", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 18:00:02,031", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0055s"}
+{"asctime": "2025-10-16 18:00:02,034", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:50672 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:00:17,026", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 18:00:17,044", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0178s"}
+{"asctime": "2025-10-16 18:00:17,051", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:44544 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:00:23,992", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:00:23,998", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0058s"}
+{"asctime": "2025-10-16 18:00:24,010", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:36046 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:00:32,025", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 18:00:32,032", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0064s"}
+{"asctime": "2025-10-16 18:00:32,035", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:47292 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:00:41,195", "name": "uvicorn.error", "levelname": "INFO", "message": "Shutting down"}
+{"asctime": "2025-10-16 18:00:41,297", "name": "uvicorn.error", "levelname": "INFO", "message": "Waiting for application shutdown."}
+{"asctime": "2025-10-16 18:00:41,299", "name": "uvicorn.error", "levelname": "INFO", "message": "Application shutdown complete."}
+{"asctime": "2025-10-16 18:00:41,305", "name": "uvicorn.error", "levelname": "INFO", "message": "Finished server process [9]", "color_message": "Finished server process [\u001b[36m%d\u001b[0m]"}
+{"asctime": "2025-10-16 18:01:16,683", "name": "app", "levelname": "INFO", "message": "Logging setup complete. Level: INFO"}
+{"asctime": "2025-10-16 18:01:16,686", "name": "uvicorn.error", "levelname": "INFO", "message": "Application startup complete."}
+{"asctime": "2025-10-16 18:01:16,699", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 18:01:16,703", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:01:16,708", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 18:01:16,721", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0226s"}
+{"asctime": "2025-10-16 18:01:16,727", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0233s"}
+{"asctime": "2025-10-16 18:01:16,733", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:56724 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:01:16,739", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0306s"}
+{"asctime": "2025-10-16 18:01:17,016", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 18:01:17,024", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0080s"}
+{"asctime": "2025-10-16 18:01:17,028", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:59424 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:01:32,018", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.23.0.6"}
+{"asctime": "2025-10-16 18:01:32,036", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0180s"}
+{"asctime": "2025-10-16 18:01:32,049", "name": "uvicorn.access", "levelname": "INFO", "message": "172.23.0.6:44416 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:01:40,636", "name": "uvicorn.error", "levelname": "INFO", "message": "Shutting down"}
+{"asctime": "2025-10-16 18:01:40,740", "name": "uvicorn.error", "levelname": "INFO", "message": "Waiting for application shutdown."}
+{"asctime": "2025-10-16 18:01:40,861", "name": "uvicorn.error", "levelname": "INFO", "message": "Application shutdown complete."}
+{"asctime": "2025-10-16 18:01:40,877", "name": "uvicorn.error", "levelname": "INFO", "message": "Finished server process [72]", "color_message": "Finished server process [\u001b[36m%d\u001b[0m]"}
+{"asctime": "2025-10-16 18:04:22,808", "name": "app", "levelname": "INFO", "message": "Logging setup complete. Level: INFO"}
+{"asctime": "2025-10-16 18:04:22,813", "name": "uvicorn.error", "levelname": "INFO", "message": "Application startup complete."}
+{"asctime": "2025-10-16 18:04:33,759", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.13"}
+{"asctime": "2025-10-16 18:04:33,774", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0150s"}
+{"asctime": "2025-10-16 18:04:33,785", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.13:38410 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:04:42,736", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:04:42,759", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0234s"}
+{"asctime": "2025-10-16 18:04:42,766", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:39490 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:04:48,749", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.13"}
+{"asctime": "2025-10-16 18:04:48,780", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0307s"}
+{"asctime": "2025-10-16 18:04:48,785", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.13:60198 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:05:03,745", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.13"}
+{"asctime": "2025-10-16 18:05:03,751", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0055s"}
+{"asctime": "2025-10-16 18:05:03,756", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.13:46468 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:05:13,047", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:05:13,076", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0294s"}
+{"asctime": "2025-10-16 18:05:13,084", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:42904 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:05:18,750", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.13"}
+{"asctime": "2025-10-16 18:05:18,766", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0166s"}
+{"asctime": "2025-10-16 18:05:18,772", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.13:49964 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:05:33,754", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.13"}
+{"asctime": "2025-10-16 18:05:33,778", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0261s"}
+{"asctime": "2025-10-16 18:05:33,812", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.13:52406 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:05:43,492", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:05:43,509", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0169s"}
+{"asctime": "2025-10-16 18:05:43,549", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:55518 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:05:48,755", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.13"}
+{"asctime": "2025-10-16 18:05:48,768", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0127s"}
+{"asctime": "2025-10-16 18:05:48,795", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.13:50028 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:05:58,444", "name": "uvicorn.error", "levelname": "INFO", "message": "Shutting down"}
+{"asctime": "2025-10-16 18:05:58,560", "name": "uvicorn.error", "levelname": "INFO", "message": "Waiting for application shutdown."}
+{"asctime": "2025-10-16 18:05:58,562", "name": "uvicorn.error", "levelname": "INFO", "message": "Application shutdown complete."}
+{"asctime": "2025-10-16 18:05:58,566", "name": "uvicorn.error", "levelname": "INFO", "message": "Finished server process [10]", "color_message": "Finished server process [\u001b[36m%d\u001b[0m]"}
+{"asctime": "2025-10-16 18:08:26,860", "name": "app", "levelname": "INFO", "message": "Logging setup complete. Level: INFO"}
+{"asctime": "2025-10-16 18:08:26,865", "name": "uvicorn.error", "levelname": "INFO", "message": "Application startup complete."}
+{"asctime": "2025-10-16 18:08:33,838", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:08:33,842", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0046s"}
+{"asctime": "2025-10-16 18:08:33,845", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:51430 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:08:41,600", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:08:41,609", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0083s"}
+{"asctime": "2025-10-16 18:08:41,613", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:45500 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:08:56,597", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:08:56,606", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0083s"}
+{"asctime": "2025-10-16 18:08:56,609", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:50580 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:09:04,044", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:09:04,059", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0148s"}
+{"asctime": "2025-10-16 18:09:04,065", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:36866 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:09:11,600", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:09:11,661", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0615s"}
+{"asctime": "2025-10-16 18:09:11,669", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:45586 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:09:26,593", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:09:26,603", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0095s"}
+{"asctime": "2025-10-16 18:09:26,618", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:45554 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:09:34,515", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:09:34,534", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0180s"}
+{"asctime": "2025-10-16 18:09:34,552", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:52132 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:09:41,594", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:09:41,604", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0108s"}
+{"asctime": "2025-10-16 18:09:41,609", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:34616 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:09:56,629", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:09:56,644", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0150s"}
+{"asctime": "2025-10-16 18:09:56,674", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:38498 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:10:04,848", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:10:04,865", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0172s"}
+{"asctime": "2025-10-16 18:10:04,912", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:37642 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:10:10,353", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.1:47810 - \"OPTIONS /reports?per_page=50 HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 18:10:10,359", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.1:47822 - \"OPTIONS /reports?per_page=50 HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 18:10:10,362", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.1:47832 - \"OPTIONS /reports/templates HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 18:10:10,369", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.1:47848 - \"OPTIONS /reports/templates HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 18:10:11,588", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:10:11,615", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0271s"}
+{"asctime": "2025-10-16 18:10:11,651", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:52738 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:10:26,584", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:10:26,592", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0084s"}
+{"asctime": "2025-10-16 18:10:26,596", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:55592 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:10:35,574", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:10:35,588", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0135s"}
+{"asctime": "2025-10-16 18:10:35,593", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:48244 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:10:40,628", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.1:42716 - \"OPTIONS /system/metrics HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 18:10:40,643", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.1:42714 - \"OPTIONS /system/services HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 18:10:40,661", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.1:42728 - \"OPTIONS /system/alerts HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 18:10:40,719", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.1:42732 - \"OPTIONS /system/services HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 18:10:40,761", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.1:42742 - \"OPTIONS /system/alerts HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 18:10:40,777", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.1:42748 - \"OPTIONS /system/metrics HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 18:10:41,606", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:10:41,637", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0316s"}
+{"asctime": "2025-10-16 18:10:41,661", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:43250 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:10:48,806", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.1:42764 - \"OPTIONS /system/alerts HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 18:10:48,820", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.1:42790 - \"OPTIONS /system/metrics HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 18:10:48,833", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.1:42780 - \"OPTIONS /system/services HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 18:10:56,576", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:10:56,594", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0179s"}
+{"asctime": "2025-10-16 18:10:56,607", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:39292 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:10:56,648", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.1:45132 - \"OPTIONS /system/alerts/1/resolve HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 18:10:59,502", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.1:45132 - \"OPTIONS /system/alerts/1/resolve HTTP/1.1\" 400"}
+{"asctime": "2025-10-16 18:11:06,084", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:11:06,150", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0653s"}
+{"asctime": "2025-10-16 18:11:06,175", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:49208 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:11:11,583", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:11:11,626", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0432s"}
+{"asctime": "2025-10-16 18:11:11,662", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:40664 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:11:26,560", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:11:26,576", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0158s"}
+{"asctime": "2025-10-16 18:11:26,593", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:44084 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:11:36,690", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:11:36,711", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0210s"}
+{"asctime": "2025-10-16 18:11:36,731", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:49496 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:11:41,557", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:11:41,564", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0067s"}
+{"asctime": "2025-10-16 18:11:41,569", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:43210 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:11:56,558", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:11:56,576", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0181s"}
+{"asctime": "2025-10-16 18:11:56,585", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:48886 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:12:06,943", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:12:06,951", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0079s"}
+{"asctime": "2025-10-16 18:12:06,956", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:56200 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:12:11,556", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:12:11,572", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0164s"}
+{"asctime": "2025-10-16 18:12:11,596", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:44374 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:12:26,551", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:12:26,563", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0117s"}
+{"asctime": "2025-10-16 18:12:26,568", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:34064 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:12:37,227", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:12:37,249", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0223s"}
+{"asctime": "2025-10-16 18:12:37,268", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:60518 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:12:41,551", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:12:41,584", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0331s"}
+{"asctime": "2025-10-16 18:12:41,590", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:59854 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:12:56,552", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:12:56,560", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0083s"}
+{"asctime": "2025-10-16 18:12:56,567", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:44794 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:13:07,554", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:13:07,570", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0164s"}
+{"asctime": "2025-10-16 18:13:07,577", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:35888 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:13:11,550", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:13:11,557", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0079s"}
+{"asctime": "2025-10-16 18:13:11,562", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:34330 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:13:26,546", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:13:26,553", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0063s"}
+{"asctime": "2025-10-16 18:13:26,556", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:57468 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:13:37,732", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:13:37,738", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0062s"}
+{"asctime": "2025-10-16 18:13:37,742", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:45118 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:13:41,551", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:13:41,558", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0075s"}
+{"asctime": "2025-10-16 18:13:41,562", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:38310 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:13:56,543", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:13:56,551", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0080s"}
+{"asctime": "2025-10-16 18:13:56,555", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:53296 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:14:07,997", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:14:08,014", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0171s"}
+{"asctime": "2025-10-16 18:14:08,018", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:51606 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:14:11,559", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:14:11,577", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0174s"}
+{"asctime": "2025-10-16 18:14:11,584", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:46930 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:14:26,557", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:14:26,592", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0343s"}
+{"asctime": "2025-10-16 18:14:26,611", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:56234 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:14:38,481", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:14:38,498", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0176s"}
+{"asctime": "2025-10-16 18:14:38,526", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:40954 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:14:41,540", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:14:41,560", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0203s"}
+{"asctime": "2025-10-16 18:14:41,567", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:49366 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:14:56,535", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:14:56,541", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0063s"}
+{"asctime": "2025-10-16 18:14:56,545", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:60746 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:15:08,785", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:15:08,794", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0105s"}
+{"asctime": "2025-10-16 18:15:08,799", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:51028 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:15:11,538", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:15:11,546", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0087s"}
+{"asctime": "2025-10-16 18:15:11,558", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:58924 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:15:26,533", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:15:26,541", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0076s"}
+{"asctime": "2025-10-16 18:15:26,546", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:44500 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:15:38,957", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:15:38,963", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0058s"}
+{"asctime": "2025-10-16 18:15:38,966", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:35480 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:15:41,535", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:15:41,542", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0064s"}
+{"asctime": "2025-10-16 18:15:41,545", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:43104 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:15:56,531", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:15:56,559", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0275s"}
+{"asctime": "2025-10-16 18:15:56,573", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:52346 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:16:09,146", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:16:09,154", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0082s"}
+{"asctime": "2025-10-16 18:16:09,158", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:43386 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:16:11,529", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:16:11,546", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0171s"}
+{"asctime": "2025-10-16 18:16:11,564", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:45736 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:16:26,526", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:16:26,532", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0059s"}
+{"asctime": "2025-10-16 18:16:26,535", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:45852 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:16:39,345", "name": "app", "levelname": "INFO", "message": "GET /health - 127.0.0.1"}
+{"asctime": "2025-10-16 18:16:39,353", "name": "app", "levelname": "INFO", "message": "GET /health - 200 - 0.0081s"}
+{"asctime": "2025-10-16 18:16:39,357", "name": "uvicorn.access", "levelname": "INFO", "message": "127.0.0.1:46810 - \"GET /health HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:16:41,530", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:16:41,543", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0134s"}
+{"asctime": "2025-10-16 18:16:41,552", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:46970 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:16:56,534", "name": "app", "levelname": "INFO", "message": "GET /metrics - 172.24.0.11"}
+{"asctime": "2025-10-16 18:16:56,553", "name": "app", "levelname": "INFO", "message": "GET /metrics - 200 - 0.0189s"}
+{"asctime": "2025-10-16 18:16:56,572", "name": "uvicorn.access", "levelname": "INFO", "message": "172.24.0.11:59012 - \"GET /metrics HTTP/1.1\" 200"}
+{"asctime": "2025-10-16 18:17:01,121", "name": "uvicorn.error", "levelname": "INFO", "message": "Shutting down"}
+{"asctime": "2025-10-16 18:17:01,224", "name": "uvicorn.error", "levelname": "INFO", "message": "Waiting for application shutdown."}
+{"asctime": "2025-10-16 18:17:01,227", "name": "uvicorn.error", "levelname": "INFO", "message": "Application shutdown complete."}
+{"asctime": "2025-10-16 18:17:01,229", "name": "uvicorn.error", "levelname": "INFO", "message": "Finished server process [7]", "color_message": "Finished server process [\u001b[36m%d\u001b[0m]"}
