@@ -155,7 +155,7 @@ class Alert(Base):
     is_read = Column(Boolean, default=False, nullable=False)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
-    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False)
+    user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=True)
     country_id = Column(Integer, ForeignKey('countries.id'), nullable=True)
     crop_id = Column(Integer, ForeignKey('crops.id'), nullable=True)
 

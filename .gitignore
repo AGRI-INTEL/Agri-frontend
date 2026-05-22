@@ -106,4 +106,4 @@ data/processed/
 # ============================================
 airflow.cfg
 airflow.db
-unittests.cfg
+unittests.cfg.env.docker

@@ -114,7 +114,7 @@ class FileAttachment(Base):
     file_id = Column(UUID(as_uuid=True), ForeignKey('file_shares.id'), nullable=False)
     post_id = Column(UUID(as_uuid=True), ForeignKey('posts.id'), nullable=True)
     comment_id = Column(UUID(as_uuid=True), ForeignKey('comments.id'), nullable=True)
-    message_id = Column(UUID(as_uuid=True), ForeignKey('private_messages.id'), nullable=True)
+    message_id = Column(UUID(as_uuid=True), nullable=True)  # Réservé pour les messages privés (futur)
     
     # Métadonnées spécifiques à l'attachement
     caption = Column(Text, nullable=True)
