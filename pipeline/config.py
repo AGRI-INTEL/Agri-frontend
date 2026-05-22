@@ -7,7 +7,7 @@ WEST_AFRICAN_COUNTRIES_ISO2 = {
     'Benin': 'BJ',
     'Burkina Faso': 'BF',
     'Cabo Verde': 'CV',
-    'Cote d'Ivoire': 'CI',
+    "Cote d'Ivoire": 'CI',
     'Gambia': 'GM',
     'Ghana': 'GH',
     'Guinea': 'GN',

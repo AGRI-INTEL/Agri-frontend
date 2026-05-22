@@ -9,7 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.database import get_db
 from src.services.auth import get_current_active_user, require_admin, AuthService
-from api.schemas.auth import UserResponse, UserListResponse
+from api.schemas.auth import UserResponse, UserListResponse, UserUpdate
 from api.models.sql.user import User, UserRole
 
 router = APIRouter()
@@ -106,3 +106,44 @@ async def get_user_stats(
         "users_by_country": users_by_country,
         "recent_registrations": recent_registrations
     }
+
+
+@router.put("/{user_id}", response_model=UserResponse)
+async def update_user(
+    user_id: str,
+    body: UserUpdate,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mise à jour d'un utilisateur (admin ou soi-même)"""
+    import uuid as _uuid
+    if str(current_user.id) != user_id and current_user.role != UserRole.ADMIN:
+        raise HTTPException(status_code=status.HTTP_403_FORBIDDEN, detail="Non autorisé")
+
+    result = await db.execute(select(User).where(User.id == _uuid.UUID(user_id)))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Utilisateur non trouvé")
+
+    for field, value in body.model_dump(exclude_unset=True).items():
+        setattr(user, field, value)
+
+    await db.commit()
+    await db.refresh(user)
+    return UserResponse.model_validate(user)
+
+
+@router.delete("/{user_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_user(
+    user_id: str,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Supprime un utilisateur (admin uniquement)"""
+    import uuid as _uuid
+    result = await db.execute(select(User).where(User.id == _uuid.UUID(user_id)))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=status.HTTP_404_NOT_FOUND, detail="Utilisateur non trouvé")
+    await db.delete(user)
+    await db.commit()

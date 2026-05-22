@@ -31,9 +31,9 @@ xgboost==2.0.2
 lightgbm==4.1.0
 mlflow==2.9.2
 shap==0.44.0
-tensorflow==2.15.0
-torch==2.1.1
-transformers==4.36.0
+# tensorflow==2.15.0  # Not compatible with Python 3.12, using torch instead
+torch==2.2.0
+transformers==4.38.0
 prophet==1.1.5
 statsmodels==0.14.0
 plotly==5.17.0

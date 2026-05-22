@@ -1,64 +1,37 @@
-FROM python:3.11-slim AS builder
+FROM python:3.12-slim
 
-# Création d'un utilisateur non privilégié
+# Copier les packages depuis le .venv local (pas besoin d'internet)
+COPY .venv/lib/python3.12/site-packages /usr/local/lib/python3.12/site-packages
+COPY .venv/bin /usr/local/bin_venv
+
+# Libs système minimales déjà présentes dans python:3.12-slim
+# On installe uniquement ce qui est strictement nécessaire au runtime
+# en utilisant les packages déjà dans l'image de base
+RUN apt-get update --fix-missing -o Acquire::Retries=3 || true && \
+    apt-get install -y --no-install-recommends libpq5 curl 2>/dev/null || true && \
+    rm -rf /var/lib/apt/lists/*
+
+# Utilisateur non-root
 RUN groupadd -r appuser && useradd -r -g appuser appuser
-
-# Mise à jour des paquets système et correction des vulnérabilités
-RUN apt-get update && \
-    apt-get upgrade -y && \
-    apt-get install -y --no-install-recommends \
-        gcc \
-        g++ \
-        libc6-dev \
-        libpq-dev \
-        postgresql-client \
-        gdal-bin \
-        libgdal-dev \
-        libproj-dev \
-        proj-data \
-        proj-bin \
-        libgeos-dev \
-        git \
-        curl \
-        gnupg2 \
-        build-essential && \
-    apt-get clean && \
-    rm -rf /var/lib/apt/lists/* && \
-    pip install --no-cache-dir --upgrade pip setuptools wheel
-
-# Configuration de la sécurité
-ENV PYTHONDONTWRITEBYTECODE=1 \
-    PYTHONUNBUFFERED=1 \
-    PIP_NO_CACHE_DIR=1 \
-    PIP_DISABLE_PIP_VERSION_CHECK=1 \
-    PATH="/home/appuser/.local/bin:${PATH}"
 
 WORKDIR /app
 
-# Installation des dépendances Python
-COPY --chown=appuser:appuser requirements.txt .
-RUN pip install --timeout=600 --no-cache-dir -r requirements.txt
-
-# Configuration des variables d'environnement pour GDAL
-ENV GDAL_CONFIG=/usr/bin/gdal-config \
-    GEOS_CONFIG=/usr/bin/geos-config
-
-# Copie du code de l'application
+# Copier le code (sans .venv grâce au .dockerignore)
 COPY --chown=appuser:appuser . .
 
-# Création du répertoire uploads avec les bonnes permissions
-RUN mkdir -p /app/uploads && \
-    chown -R appuser:appuser /app/uploads
+# Dossiers nécessaires
+RUN mkdir -p /app/uploads /app/logs && \
+    chown -R appuser:appuser /app/uploads /app/logs
 
-# Passage à l'utilisateur non privilégié
 USER appuser
 
-# Exposition du port
+ENV PYTHONDONTWRITEBYTECODE=1 \
+    PYTHONUNBUFFERED=1 \
+    PYTHONPATH=/app
+
 EXPOSE 8000
 
-# Vérification de la santé
-HEALTHCHECK --interval=30s --timeout=30s --start-period=5s --retries=3 \
-    CMD curl -f http://localhost:8000/health || exit 1
+HEALTHCHECK --interval=30s --timeout=10s --start-period=20s --retries=3 \
+    CMD curl -f http://localhost:8000/api/v1/health || exit 1
 
-# Démarrage de l'application
-CMD ["uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000"]
+CMD ["python3", "-m", "uvicorn", "src.main:app", "--host", "0.0.0.0", "--port", "8000", "--workers", "2"]

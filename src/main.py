@@ -93,11 +93,7 @@ async def root():
         "status": "active"
     }
 
-# Health check endpoint
-@app.get("/health")
-async def health_check():
-    """Health check endpoint"""
-    return {"status": "healthy"}
+# Health check endpoint — géré par health_router dans /api/v1/health
 
 # Metrics endpoint
 @app.get("/metrics")

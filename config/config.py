@@ -89,6 +89,14 @@ class Settings(BaseSettings):
     OPENAI_API_KEY: Optional[str] = None
     HUGGINGFACE_API_KEY: Optional[str] = None
     LANGCHAIN_API_KEY: Optional[str] = None
+
+    # OpenRouter (Kimi + DeepSeek)
+    OPENROUTER_API_KEY: Optional[str] = None
+    OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
+    KIMI_MODEL: str = "moonshotai/moonshot-v1-8k"
+    DEEPSEEK_MODEL: str = "deepseek/deepseek-chat"
+    DEEPSEEK_API_KEY: Optional[str] = None
+    DEFAULT_LLM_PROVIDER: str = "kimi"  # "kimi" | "deepseek" | "openai"
     
     # Frontend URL
     FRONTEND_URL: str = Field(default="http://localhost:3000")

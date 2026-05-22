@@ -39,7 +39,7 @@ HEADERS = {
     "User-Agent": "AgriIntel/1.0 (https://yourdomain.com)"
 }
 
-@router.post("/geocode", response_model=GeocodeResponse, tags=["Geolocation"])
+@router.post("/geocode", response_model=GeocodeResponse)
 async def geocode_address(request: GeocodeRequest):
     """
     Geocode an address using OpenStreetMap's Nominatim service.
@@ -74,7 +74,7 @@ async def geocode_address(request: GeocodeRequest):
     except Exception as e:
         raise HTTPException(status_code=500, detail=f"Internal server error: {str(e)}")
 
-@router.post("/reverse-geocode", response_model=LocationResponse, tags=["Geolocation"])
+@router.post("/reverse-geocode", response_model=LocationResponse)
 async def reverse_geocode(request: ReverseGeocodeRequest):
     """
     Reverse geocode coordinates to get address information using OpenStreetMap's Nominatim service.

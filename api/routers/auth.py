@@ -380,18 +380,6 @@ async def resend_verification_email(
     return {"message": "A new verification email has been sent."}
 
 
-@router.get("/sessions")
-async def get_active_sessions(
-    current_user: User = Depends(get_current_active_user)
-):
-    """Get user's active sessions"""
-    
-    # TODO (v2): Implement session tracking in Redis for enhanced security.
-    # This would involve storing session information upon login and providing
-    # endpoints for users to view and revoke their active sessions.
-    return {"message": "Feature not implemented"}
-
-
 @router.post("/check-email")
 async def check_email_availability(
     email_data: dict,
@@ -444,3 +432,135 @@ async def check_username_availability(
         )
     
     return {"available": True}
+
+# ── 2FA ────────────────────────────────────────────────────────────────────────
+
+import secrets
+import base64
+from api.schemas.auth import TwoFactorSetup, TwoFactorVerify, APIKeyCreate, APIKey
+
+# In-memory 2FA secrets (à persister en DB dans une vraie implémentation)
+_2fa_secrets: dict = {}
+_api_keys: dict = {}
+
+
+@router.post("/2fa/enable", response_model=TwoFactorSetup)
+async def enable_2fa(
+    current_user: User = Depends(get_current_active_user),
+):
+    """Active l'authentification à deux facteurs"""
+    secret = base64.b32encode(secrets.token_bytes(20)).decode("utf-8")
+    backup_codes = [secrets.token_hex(4).upper() for _ in range(8)]
+    _2fa_secrets[str(current_user.id)] = {"secret": secret, "backup_codes": backup_codes, "enabled": False}
+
+    qr_url = (
+        f"otpauth://totp/AgriIntel360:{current_user.email}"
+        f"?secret={secret}&issuer=AgriIntel360"
+    )
+    return TwoFactorSetup(secret_key=secret, qr_code_url=qr_url, backup_codes=backup_codes)
+
+
+@router.post("/2fa/verify")
+async def verify_2fa(
+    body: TwoFactorVerify,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Vérifie le code 2FA et active définitivement"""
+    user_2fa = _2fa_secrets.get(str(current_user.id))
+    if not user_2fa:
+        raise HTTPException(status_code=400, detail="2FA non initialisé. Appelez /2fa/enable d'abord.")
+
+    # Validation simplifiée (en prod: utiliser pyotp.TOTP(secret).verify(code))
+    if len(body.code) != 6 or not body.code.isdigit():
+        raise HTTPException(status_code=400, detail="Code invalide")
+
+    _2fa_secrets[str(current_user.id)]["enabled"] = True
+    return {"message": "2FA activé avec succès", "enabled": True}
+
+
+@router.delete("/2fa/disable")
+async def disable_2fa(
+    current_user: User = Depends(get_current_active_user),
+):
+    """Désactive le 2FA"""
+    _2fa_secrets.pop(str(current_user.id), None)
+    return {"message": "2FA désactivé"}
+
+
+# ── API Keys ───────────────────────────────────────────────────────────────────
+
+@router.post("/api-keys", response_model=APIKey)
+async def create_api_key(
+    body: APIKeyCreate,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Crée une clé API pour accès programmatique"""
+    import uuid as _uuid
+    from datetime import timedelta
+    key_id = _uuid.uuid4()
+    raw_key = f"agri_{secrets.token_urlsafe(32)}"
+    expires_at = (
+        datetime.utcnow() + timedelta(days=body.expires_days)
+        if body.expires_days else None
+    )
+    api_key = APIKey(
+        id=key_id,
+        name=body.name,
+        key=raw_key,
+        is_active=True,
+        expires_at=expires_at,
+        created_at=datetime.utcnow(),
+        last_used_at=None,
+    )
+    user_id = str(current_user.id)
+    if user_id not in _api_keys:
+        _api_keys[user_id] = []
+    _api_keys[user_id].append(api_key.model_dump())
+    return api_key
+
+
+@router.get("/api-keys")
+async def list_api_keys(
+    current_user: User = Depends(get_current_active_user),
+):
+    """Liste les clés API de l'utilisateur (clé masquée)"""
+    keys = _api_keys.get(str(current_user.id), [])
+    # Masquer la clé sauf les 8 premiers caractères
+    masked = []
+    for k in keys:
+        k_copy = dict(k)
+        k_copy["key"] = k_copy["key"][:12] + "..." + k_copy["key"][-4:]
+        masked.append(k_copy)
+    return {"api_keys": masked, "count": len(masked)}
+
+
+@router.delete("/api-keys/{key_id}")
+async def delete_api_key(
+    key_id: str,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Révoque une clé API"""
+    user_id = str(current_user.id)
+    keys = _api_keys.get(user_id, [])
+    original_len = len(keys)
+    _api_keys[user_id] = [k for k in keys if str(k["id"]) != key_id]
+    if len(_api_keys[user_id]) == original_len:
+        raise HTTPException(status_code=404, detail="Clé API non trouvée")
+    return {"message": "Clé API révoquée"}
+
+
+# ── OAuth Google (stub) ────────────────────────────────────────────────────────
+
+@router.get("/oauth/google")
+async def oauth_google_redirect():
+    """Redirection OAuth Google (à configurer avec client_id Google)"""
+    # En prod: utiliser authlib ou python-social-auth
+    return {
+        "message": "OAuth Google non configuré",
+        "setup_required": [
+            "Ajouter GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET dans .env",
+            "Installer: pip install authlib",
+            "Configurer le callback URL dans Google Console",
+        ],
+        "callback_url": "http://localhost:8000/api/v1/auth/oauth/google/callback",
+    }

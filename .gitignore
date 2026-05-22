@@ -1,22 +1,109 @@
-# Dépendances
-/node_modules
+# ============================================
+# ENVIRONNEMENTS VIRTUELS
+# ============================================
+.venv/
+venv/
+env/
+ENV/
+env.bak/
+venv.bak/
 
-# Fichiers de build
-/dist
-/build
+# ============================================
+# PYTHON CACHE
+# ============================================
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+build/
+develop-eggs/
+dist/
+downloads/
+eggs/
+.eggs/
+lib/
+lib64/
+parts/
+sdist/
+var/
+wheels/
+*.egg-info/
+.installed.cfg
+*.egg
+MANIFEST
 
-# Fichiers de logs
-npm-debug.log*
-yarn-debug.log*
-yarn-error.log*
-
-# Fichiers d'environnement (ne jamais versionner les secrets !)
+# ============================================
+# FICHIERS D'ENVIRONNEMENT
+# ============================================
 .env
 .env.local
-.env.development.local
-.env.test.local
-.env.production.local
+.env.*.local
+*.env
+.envrc
 
-# Fichiers de cache
-.npm
-.yarn-cache
+# ============================================
+# BASES DE DONNÉES LOCALES
+# ============================================
+*.db
+*.sqlite
+*.sqlite3
+
+# ============================================
+# LOGS
+# ============================================
+*.log
+logs/
+log/
+
+# ============================================
+# IDE / ÉDITEURS
+# ============================================
+.vscode/
+.idea/
+*.swp
+*.swo
+*~
+.project
+.pydevproject
+
+# ============================================
+# SYSTÈME D'EXPLOITATION
+# ============================================
+.DS_Store
+Thumbs.db
+desktop.ini
+
+# ============================================
+# TESTS & COVERAGE
+# ============================================
+.coverage
+htmlcov/
+.tox/
+.nox/
+.pytest_cache/
+coverage.xml
+*.cover
+.hypothesis/
+
+# ============================================
+# DOCKER
+# ============================================
+docker-compose.override.yml
+
+# ============================================
+# ML / DATA
+# ============================================
+mlruns/
+*.pkl
+*.h5
+*.joblib
+data/raw/
+data/processed/
+
+# ============================================
+# AIRFLOW
+# ============================================
+airflow.cfg
+airflow.db
+unittests.cfg

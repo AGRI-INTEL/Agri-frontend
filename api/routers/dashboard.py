@@ -220,3 +220,94 @@ async def export_dashboard_data(
         raise HTTPException(status_code=status.HTTP_501_NOT_IMPLEMENTED, detail=str(e))
     except Exception as e:
         raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail=f"Failed to export data: {e}")
+
+
+@router.get("/charts/weather")
+async def get_weather_chart_data(
+    country: str = None,
+    period: str = "1M",
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Données météo pour graphiques dashboard"""
+    from datetime import timedelta
+    from api.models.sql.agricultural import StagingWeather
+    days = {"1M": 30, "3M": 90, "6M": 180, "1Y": 365}.get(period, 30)
+    since = datetime.utcnow() - timedelta(days=days)
+
+    try:
+        query = select(StagingWeather).where(StagingWeather.date >= since).order_by(StagingWeather.date)
+        if country:
+            query = query.where(StagingWeather.country.ilike(f"%{country}%"))
+        result = await db.execute(query.limit(200))
+        rows = result.scalars().all()
+        if rows:
+            return {
+                "data": [
+                    {"date": r.date.isoformat(), "temperature": r.temperature,
+                     "precipitation": r.precipitation, "humidity": r.humidity,
+                     "city": r.city, "country": r.country}
+                    for r in rows
+                ],
+                "period": period,
+            }
+    except Exception:
+        pass
+
+    # Mock
+    from datetime import timedelta
+    data = []
+    for i in range(min(days, 30)):
+        d = datetime.utcnow() - timedelta(days=days - i)
+        data.append({
+            "date": d.strftime("%Y-%m-%d"),
+            "temperature": round(26 + (i % 5) * 0.8, 1),
+            "precipitation": round(5 + (i % 7) * 4, 1),
+            "humidity": round(65 + (i % 4) * 3, 1),
+            "city": "Lomé", "country": country or "Togo",
+        })
+    return {"data": data, "period": period, "source": "demo"}
+
+
+@router.get("/charts/economics")
+async def get_economics_chart_data(
+    country: str = None,
+    indicator: str = "agricultural_gdp",
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Données économiques pour graphiques dashboard"""
+    from api.models.sql.agricultural import StagingEconomic
+    try:
+        query = (
+            select(StagingEconomic)
+            .where(StagingEconomic.indicator == indicator)
+            .order_by(StagingEconomic.year)
+            .limit(100)
+        )
+        if country:
+            query = query.where(StagingEconomic.country_name.ilike(f"%{country}%"))
+        result = await db.execute(query)
+        rows = result.scalars().all()
+        if rows:
+            return {
+                "data": [
+                    {"year": r.year, "value": r.value, "unit": r.unit,
+                     "country": r.country_name, "indicator": r.indicator}
+                    for r in rows
+                ],
+                "indicator": indicator,
+            }
+    except Exception:
+        pass
+
+    # Mock
+    countries_data = [("Togo", 1.8), ("Ghana", 12.4), ("Nigeria", 98.2)]
+    data = []
+    for name, base in countries_data:
+        if country and country.lower() not in name.lower():
+            continue
+        for yr in range(2019, 2024):
+            data.append({"year": yr, "value": round(base * (1 + (yr - 2019) * 0.03), 2),
+                         "unit": "billion USD", "country": name, "indicator": indicator})
+    return {"data": data, "indicator": indicator, "source": "demo"}

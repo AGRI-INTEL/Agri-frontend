@@ -12,8 +12,8 @@ class AlertBase(BaseModel):
     message: str
     alert_type: str
     severity: str
-    country_id: Optional[uuid.UUID] = None
-    crop_id: Optional[uuid.UUID] = None
+    country_id: Optional[int] = None   # FK Integer dans le modèle
+    crop_id: Optional[int] = None      # FK Integer dans le modèle
 
 class AlertCreate(AlertBase):
     pass

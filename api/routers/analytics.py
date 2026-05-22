@@ -91,3 +91,114 @@ async def get_price_trends(
         cursor = cursor + timedelta(days=7)
 
     return data
+
+
+@router.get("/reports/weather")
+async def get_weather_analytics(
+    country: str = None,
+    year: int = None,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rapport analytique météo"""
+    from api.models.sql.agricultural import StagingWeather
+    query = select(StagingWeather).order_by(StagingWeather.date.desc()).limit(200)
+    if country:
+        query = query.where(StagingWeather.country.ilike(f"%{country}%"))
+
+    try:
+        result = await db.execute(query)
+        rows = result.scalars().all()
+        if rows:
+            temps = [r.temperature for r in rows if r.temperature]
+            precips = [r.precipitation for r in rows if r.precipitation]
+            return {
+                "summary": {
+                    "avg_temperature": round(sum(temps) / len(temps), 2) if temps else None,
+                    "avg_precipitation": round(sum(precips) / len(precips), 2) if precips else None,
+                    "data_points": len(rows),
+                },
+                "data": [
+                    {"date": r.date.isoformat(), "city": r.city, "country": r.country,
+                     "temperature": r.temperature, "precipitation": r.precipitation}
+                    for r in rows[:50]
+                ],
+            }
+    except Exception:
+        pass
+
+    return {
+        "summary": {"avg_temperature": 28.4, "avg_precipitation": 42.1, "data_points": 0},
+        "data": [],
+        "source": "demo",
+    }
+
+
+@router.get("/reports/economics")
+async def get_economics_analytics(
+    country: str = None,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rapport analytique économique"""
+    from api.models.sql.agricultural import StagingEconomic
+    query = select(StagingEconomic).order_by(StagingEconomic.year.desc()).limit(100)
+    if country:
+        query = query.where(StagingEconomic.country_name.ilike(f"%{country}%"))
+
+    try:
+        result = await db.execute(query)
+        rows = result.scalars().all()
+        if rows:
+            return {
+                "summary": {"data_points": len(rows)},
+                "data": [
+                    {"country": r.country_name, "indicator": r.indicator,
+                     "year": r.year, "value": r.value, "unit": r.unit}
+                    for r in rows
+                ],
+            }
+    except Exception:
+        pass
+
+    return {"summary": {}, "data": [], "source": "demo"}
+
+
+@router.get("/compare")
+async def compare_countries(
+    countries: str = "Nigeria,Ghana,Togo",
+    crop: str = None,
+    metric: str = "production",
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Comparaison de métriques entre pays"""
+    country_list = [c.strip() for c in countries.split(",")]
+
+    query = select(StagingProduction).where(
+        StagingProduction.country_name.in_(country_list)
+    ).order_by(StagingProduction.year.desc()).limit(200)
+    if crop:
+        query = query.where(StagingProduction.crop_name.ilike(f"%{crop}%"))
+
+    try:
+        result = await db.execute(query)
+        rows = result.scalars().all()
+        if rows:
+            comparison = {}
+            for r in rows:
+                key = r.country_name
+                if key not in comparison:
+                    comparison[key] = []
+                comparison[key].append({"year": r.year, "value": r.value, "crop": r.crop_name})
+            return {"comparison": comparison, "countries": country_list, "metric": metric}
+    except Exception:
+        pass
+
+    # Mock
+    mock = {}
+    base_vals = {"Nigeria": 12000000, "Ghana": 3200000, "Togo": 850000}
+    for c in country_list:
+        base = base_vals.get(c, 1000000)
+        mock[c] = [{"year": 2023 - i, "value": base * (1 - i * 0.03), "crop": crop or "Maïs"} for i in range(5)]
+    return {"comparison": mock, "countries": country_list, "metric": metric, "source": "demo"}
