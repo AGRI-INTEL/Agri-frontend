@@ -109,3 +109,4 @@ airflow.db
 unittests.cfg.env.docker
 .env.docker
 .env.docker
+.env.docker
