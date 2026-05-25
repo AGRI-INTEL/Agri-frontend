@@ -107,3 +107,4 @@ data/processed/
 airflow.cfg
 airflow.db
 unittests.cfg.env.docker
+.env.docker
