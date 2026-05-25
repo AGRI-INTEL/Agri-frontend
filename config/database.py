@@ -75,6 +75,12 @@ async def create_db_and_tables():
         # Create PostgreSQL tables
         async with engine.begin() as conn:
             await conn.run_sync(Base.metadata.create_all)
+
+        # Ensure the default administrator account exists.
+        # Kept after SQL table creation and before external services so the admin
+        # account is available even if MongoDB/Redis/Elasticsearch are offline.
+        from src.services.admin_seed import ensure_default_admin_user
+        await ensure_default_admin_user()
         
         # Initialize MongoDB
         mongodb_client = AsyncIOMotorClient(settings.MONGODB_URL)

@@ -53,6 +53,12 @@ class Settings(BaseSettings):
     # Security
     BCRYPT_ROUNDS: int = 12
     ALLOWED_HOSTS: List[str] = ["*"]
+
+    # Default administrator account
+    DEFAULT_ADMIN_EMAIL: str = "admin@agri.com"
+    DEFAULT_ADMIN_PASSWORD: str = "admin@2006"
+    DEFAULT_ADMIN_USERNAME: str = "admin"
+    DEFAULT_ADMIN_FULL_NAME: str = "Administrateur AgriIntel360"
     
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = Field(
@@ -84,6 +90,10 @@ class Settings(BaseSettings):
     FAO_API_KEY: Optional[str] = None
     WORLD_BANK_API_KEY: Optional[str] = None
     MAPBOX_ACCESS_TOKEN: Optional[str] = None
+
+    # OAuth
+    GOOGLE_CLIENT_ID: Optional[str] = None
+    GOOGLE_CLIENT_SECRET: Optional[str] = None
     
     # AI/ML Keys
     OPENAI_API_KEY: Optional[str] = None
@@ -109,11 +119,21 @@ class Settings(BaseSettings):
     MAIL_SERVER: Optional[str] = None
     MAIL_STARTTLS: bool = True
     MAIL_SSL_TLS: bool = False
+
+    # SMTP direct (for notifications service)
+    SMTP_HOST: Optional[str] = None
+    SMTP_PORT: int = 587
+    SMTP_USERNAME: Optional[str] = None
+    SMTP_PASSWORD: Optional[str] = None
+    SMTP_TLS: bool = True
     
     # SMS/Notifications
     TWILIO_ACCOUNT_SID: Optional[str] = None
     TWILIO_AUTH_TOKEN: Optional[str] = None
     TWILIO_PHONE_NUMBER: Optional[str] = None
+
+    # Firebase Cloud Messaging (push notifications)
+    FCM_SERVER_KEY: Optional[str] = None
     
     # Cache TTL (seconds)
     CACHE_TTL_SHORT: int = 300  # 5 minutes

@@ -22,7 +22,6 @@ from api.schemas.community import (
     PostResponse, PostCreate, PostUpdate, PostListResponse
 )
 
-
 class CommunityService:
     """Service principal de gestion des communautés"""
     
@@ -133,6 +132,170 @@ class CommunityService:
         
         return await self._post_to_response(post, user_id, db)
     
+    async def update_group(self, group_id: str, group_update, user_id: str, db: AsyncSession) -> Optional[GroupResponse]:
+        """Met à jour un groupe"""
+        query = select(Group).where(Group.id == group_id)
+        result = await db.execute(query)
+        group = result.scalar_one_or_none()
+        if not group:
+            return None
+        if str(group.created_by) != user_id:
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        for field, value in group_update.model_dump(exclude_unset=True).items():
+            setattr(group, field, value)
+        await db.commit()
+        await db.refresh(group)
+        return await self._group_to_response(group, user_id, db)
+
+    async def leave_group(self, group_id: str, user_id: str, db: AsyncSession) -> bool:
+        """Quitter un groupe"""
+        is_member = await self._check_membership(group_id, user_id, db)
+        if not is_member:
+            return False
+        delete_query = group_members.delete().where(
+            and_(group_members.c.group_id == group_id, group_members.c.user_id == user_id)
+        )
+        await db.execute(delete_query)
+        query = select(Group).where(Group.id == group_id)
+        result = await db.execute(query)
+        group = result.scalar_one_or_none()
+        if group and group.member_count > 0:
+            group.member_count -= 1
+        await db.commit()
+        return True
+
+    async def search_groups(self, search_params, user_id: str, page: int, per_page: int, db: AsyncSession) -> dict:
+        """Recherche des groupes"""
+        query = select(Group).where(Group.is_active == True)
+        if search_params.query:
+            query = query.where(Group.name.ilike(f"%{search_params.query}%"))
+        if search_params.type:
+            query = query.where(Group.type == search_params.type)
+        if search_params.location:
+            query = query.where(Group.location.ilike(f"%{search_params.location}%"))
+        total_result = await db.execute(select(func.count()).select_from(query.subquery()))
+        total = total_result.scalar()
+        offset = (page - 1) * per_page
+        result = await db.execute(query.offset(offset).limit(per_page).order_by(desc(Group.member_count)))
+        groups = result.scalars().all()
+        group_responses = [await self._group_to_response(g, user_id, db) for g in groups]
+        return {'groups': group_responses, 'total': total, 'page': page, 'per_page': per_page, 'pages': (total + per_page - 1) // per_page}
+
+    async def get_posts(self, group_id: str, user_id: str, page: int, per_page: int, db: AsyncSession):
+        """Récupère les posts d'un groupe"""
+        from api.models.sql.community import Post
+        query = select(Post).where(and_(Post.group_id == group_id, Post.is_published == True))
+        total_result = await db.execute(select(func.count()).select_from(query.subquery()))
+        total = total_result.scalar()
+        offset = (page - 1) * per_page
+        result = await db.execute(query.offset(offset).limit(per_page).order_by(desc(Post.created_at)))
+        posts = result.scalars().all()
+        post_responses = [await self._post_to_response(p, user_id, db) for p in posts]
+        return PostListResponse(posts=post_responses, total=total, page=page, per_page=per_page, pages=(total + per_page - 1) // per_page)
+
+    async def get_post(self, post_id: str, user_id: str, db: AsyncSession) -> Optional[PostResponse]:
+        """Récupère un post par ID"""
+        from api.models.sql.community import Post
+        result = await db.execute(select(Post).where(Post.id == post_id))
+        post = result.scalar_one_or_none()
+        if not post:
+            return None
+        post.view_count += 1
+        await db.commit()
+        return await self._post_to_response(post, user_id, db)
+
+    async def update_post(self, post_id: str, post_update, user_id: str, db: AsyncSession) -> Optional[PostResponse]:
+        """Met à jour un post"""
+        from api.models.sql.community import Post
+        result = await db.execute(select(Post).where(Post.id == post_id))
+        post = result.scalar_one_or_none()
+        if not post:
+            return None
+        if str(post.author_id) != user_id:
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        for field, value in post_update.model_dump(exclude_unset=True).items():
+            setattr(post, field, value)
+        await db.commit()
+        await db.refresh(post)
+        return await self._post_to_response(post, user_id, db)
+
+    async def delete_post(self, post_id: str, user_id: str, db: AsyncSession) -> bool:
+        """Supprime un post"""
+        from api.models.sql.community import Post
+        result = await db.execute(select(Post).where(Post.id == post_id))
+        post = result.scalar_one_or_none()
+        if not post:
+            return False
+        if str(post.author_id) != user_id:
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        await db.delete(post)
+        await db.commit()
+        return True
+
+    async def add_reaction(self, reaction_data, user_id: str, db: AsyncSession, post_id: str = None, comment_id: str = None) -> dict:
+        """Ajoute ou retire une réaction"""
+        existing_query = select(Reaction).where(
+            and_(Reaction.user_id == user_id,
+                 Reaction.post_id == post_id if post_id else Reaction.comment_id == comment_id)
+        )
+        existing_result = await db.execute(existing_query)
+        existing = existing_result.scalar_one_or_none()
+        if existing:
+            await db.delete(existing)
+            await db.commit()
+            return {"action": "removed", "type": existing.type}
+        reaction = Reaction(user_id=user_id, post_id=post_id, comment_id=comment_id, type=reaction_data.type)
+        db.add(reaction)
+        await db.commit()
+        return {"action": "added", "type": reaction_data.type}
+
+    async def create_comment(self, comment_data, user_id: str, db: AsyncSession):
+        """Crée un commentaire"""
+        comment = Comment(
+            content=comment_data.content,
+            author_id=user_id,
+            post_id=str(comment_data.post_id),
+            parent_id=str(comment_data.parent_id) if comment_data.parent_id else None
+        )
+        db.add(comment)
+        await db.commit()
+        await db.refresh(comment)
+        return await self._comment_to_response(comment, db)
+
+    async def get_post_comments(self, post_id: str, user_id: str, db: AsyncSession) -> list:
+        """Récupère les commentaires d'un post"""
+        result = await db.execute(
+            select(Comment).where(and_(Comment.post_id == post_id, Comment.parent_id == None, Comment.is_deleted == False))
+        )
+        comments = result.scalars().all()
+        return [await self._comment_to_response(c, db) for c in comments]
+
+    async def update_comment(self, comment_id: str, comment_update, user_id: str, db: AsyncSession):
+        """Met à jour un commentaire"""
+        result = await db.execute(select(Comment).where(Comment.id == comment_id))
+        comment = result.scalar_one_or_none()
+        if not comment:
+            return None
+        if str(comment.author_id) != user_id:
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        comment.content = comment_update.content
+        comment.is_edited = True
+        await db.commit()
+        await db.refresh(comment)
+        return await self._comment_to_response(comment, db)
+
+    async def delete_comment(self, comment_id: str, user_id: str, db: AsyncSession) -> bool:
+        """Supprime un commentaire"""
+        result = await db.execute(select(Comment).where(Comment.id == comment_id))
+        comment = result.scalar_one_or_none()
+        if not comment:
+            return False
+        if str(comment.author_id) != user_id:
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        comment.is_deleted = True
+        await db.commit()
+        return True
+
     # Méthodes utilitaires
     
     async def _add_member_to_group(self, group_id: str, user_id: str, role: GroupRole, db: AsyncSession) -> None:
@@ -151,6 +314,23 @@ class CommunityService:
         result = await db.execute(query)
         return result.first() is not None
     
+    async def _comment_to_response(self, comment: Comment, db: AsyncSession):
+        """Convertit un commentaire en réponse"""
+        from api.schemas.community import CommentResponse
+        author_query = select(User).where(User.id == comment.author_id)
+        author_result = await db.execute(author_query)
+        author = author_result.scalar_one_or_none()
+        return CommentResponse(
+            id=comment.id, content=comment.content,
+            author_id=comment.author_id,
+            author_name=author.full_name if author else "Utilisateur inconnu",
+            author_avatar=author.avatar_url if author else None,
+            post_id=comment.post_id, parent_id=comment.parent_id,
+            is_edited=comment.is_edited, is_deleted=comment.is_deleted,
+            like_count=comment.like_count, created_at=comment.created_at,
+            updated_at=comment.updated_at, replies=[]
+        )
+
     async def _group_to_response(self, group: Group, user_id: str, db: AsyncSession) -> GroupResponse:
         """Convertit un groupe en réponse"""
         is_member = await self._check_membership(str(group.id), user_id, db)

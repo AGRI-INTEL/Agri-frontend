@@ -13,12 +13,18 @@ from fastapi import BackgroundTasks
 import smtplib
 from email.mime.text import MimeText
 from email.mime.multipart import MimeMultipart
-from twilio.rest import Client as TwilioClient
+
+try:
+    from twilio.rest import Client as TwilioClient
+    TWILIO_AVAILABLE = True
+except ImportError:
+    TwilioClient = None
+    TWILIO_AVAILABLE = False
+
 import requests
 
 from config.config import get_settings
-from config.database import get_redis, get_db, get_mongodb
-from api.routers.websocket import manager as websocket_manager
+from config.database import get_db
 from api.models.sql.user import User
 from api.models.sql.agricultural import Alert, Country, Crop
 
@@ -101,7 +107,7 @@ class NotificationService:
         
         # Configuration Twilio (SMS)
         self.twilio_client = None
-        if self.settings.TWILIO_ACCOUNT_SID and self.settings.TWILIO_AUTH_TOKEN:
+        if TWILIO_AVAILABLE and self.settings.TWILIO_ACCOUNT_SID and self.settings.TWILIO_AUTH_TOKEN:
             self.twilio_client = TwilioClient(
                 self.settings.TWILIO_ACCOUNT_SID,
                 self.settings.TWILIO_AUTH_TOKEN
@@ -187,6 +193,7 @@ class NotificationService:
         """Envoie une notification via WebSocket"""
         
         try:
+            from api.routers.websocket import manager as websocket_manager
             websocket_message = {
                 'type': 'alert',
                 'data': alert,
@@ -204,10 +211,56 @@ class NotificationService:
             print(f"❌ Erreur WebSocket: {e}")
     
     async def _send_push_notification(self, user: User, alert: Dict[str, Any]):
-        """Envoie une notification push (à implémenter avec FCM)"""
-        
-        # TODO: Implémenter Firebase Cloud Messaging
-        print(f"📱 Push notification (à implémenter): {alert['title']}")
+        """Envoie une notification push via Firebase Cloud Messaging (FCM)"""
+        fcm_server_key = getattr(self.settings, "FCM_SERVER_KEY", None)
+        if not fcm_server_key:
+            return
+
+        # Récupérer le token FCM de l'utilisateur (stocké dans ses préférences)
+        fcm_token = getattr(user, "fcm_token", None)
+        if not fcm_token:
+            return
+
+        try:
+            import httpx as _httpx
+
+            severity_icons = {
+                "info": "ℹ️", "warning": "⚠️",
+                "critical": "🚨", "emergency": "🚨",
+            }
+            icon = severity_icons.get(alert.get("severity", "info"), "🌾")
+
+            payload = {
+                "to": fcm_token,
+                "notification": {
+                    "title": f"{icon} {alert['title']}",
+                    "body": alert["message"][:200],
+                    "icon": "agriintel360_icon",
+                    "click_action": "FLUTTER_NOTIFICATION_CLICK",
+                },
+                "data": {
+                    "alert_type": alert.get("type", ""),
+                    "severity": alert.get("severity", "info"),
+                    "timestamp": datetime.now().isoformat(),
+                },
+            }
+
+            async with _httpx.AsyncClient(timeout=10.0) as client:
+                response = await client.post(
+                    "https://fcm.googleapis.com/fcm/send",
+                    headers={
+                        "Authorization": f"key={fcm_server_key}",
+                        "Content-Type": "application/json",
+                    },
+                    json=payload,
+                )
+                if response.status_code == 200:
+                    print(f"✅ Push FCM envoyé à l'utilisateur {user.id}")
+                else:
+                    print(f"❌ Erreur FCM {response.status_code}: {response.text[:100]}")
+
+        except Exception as e:
+            print(f"❌ Erreur push notification: {e}")
     
     def _create_email_template(self, user: User, alert: Dict[str, Any]) -> str:
         """Crée le template HTML pour l'email"""

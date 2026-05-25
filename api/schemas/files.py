@@ -38,19 +38,19 @@ class FileResponse(FileBase):
     file_size: int
     file_path: str
     storage_provider: str
-    storage_url: Optional[str]
-    metadata: Optional[Dict[str, Any]]
+    storage_url: Optional[str] = None
+    metadata: Optional[Dict[str, Any]] = None
     status: str
     processing_progress: float
     download_count: int
     view_count: int
     created_at: datetime
     updated_at: datetime
-    last_accessed: Optional[datetime]
+    last_accessed: Optional[datetime] = None
     uploaded_by: UUID
     uploader_name: str
-    expires_at: Optional[datetime]
-    
+    expires_at: Optional[datetime] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -83,7 +83,7 @@ class FolderUpdate(BaseModel):
 
 class FolderResponse(FolderBase):
     id: UUID
-    parent_id: Optional[UUID]
+    parent_id: Optional[UUID] = None
     path: str
     level: int
     created_at: datetime
@@ -92,7 +92,7 @@ class FolderResponse(FolderBase):
     owner_name: str
     file_count: int = 0
     folder_count: int = 0
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -126,15 +126,15 @@ class FilePermissionUpdate(BaseModel):
 class FilePermissionResponse(FilePermissionBase):
     id: UUID
     file_id: UUID
-    user_id: Optional[UUID]
-    group_id: Optional[UUID]
-    user_name: Optional[str]
-    group_name: Optional[str]
+    user_id: Optional[UUID] = None
+    group_id: Optional[UUID] = None
+    user_name: Optional[str] = None
+    group_name: Optional[str] = None
     granted_by: UUID
     grantor_name: str
     granted_at: datetime
-    expires_at: Optional[datetime]
-    
+    expires_at: Optional[datetime] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -142,12 +142,12 @@ class FilePermissionResponse(FilePermissionBase):
 class FileActivityResponse(BaseModel):
     id: UUID
     action: str
-    details: Optional[Dict[str, Any]]
+    details: Optional[Dict[str, Any]] = None
     created_at: datetime
-    user_id: Optional[UUID]
-    user_name: Optional[str]
-    ip_address: Optional[str]
-    
+    user_id: Optional[UUID] = None
+    user_name: Optional[str] = None
+    ip_address: Optional[str] = None
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -171,10 +171,10 @@ class MultipleFileUploadResponse(BaseModel):
 # Schémas pour les statistiques de fichiers
 class FileStats(BaseModel):
     total_files: int
-    total_size: int  # en octets
+    total_size: int
     files_by_type: Dict[str, int]
-    storage_used: int  # en octets
-    storage_limit: Optional[int] = None  # en octets
+    storage_used: int
+    storage_limit: Optional[int] = None
     files_uploaded_today: int
     most_downloaded: List[FileResponse] = []
     recent_uploads: List[FileResponse] = []
@@ -214,12 +214,12 @@ class ShareLinkResponse(BaseModel):
     id: UUID
     token: str
     url: str
-    expires_at: Optional[datetime]
-    max_downloads: Optional[int]
+    expires_at: Optional[datetime] = None
+    max_downloads: Optional[int] = None
     download_count: int
     is_active: bool
     created_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -236,11 +236,11 @@ class AttachmentResponse(BaseModel):
     file_name: str
     file_type: str
     file_size: int
-    storage_url: Optional[str]
-    caption: Optional[str]
+    storage_url: Optional[str] = None
+    caption: Optional[str] = None
     order_index: int
     attached_at: datetime
-    
+
     model_config = ConfigDict(from_attributes=True)
 
 
@@ -272,7 +272,7 @@ class ImageMetadata(BaseModel):
 class VideoMetadata(BaseModel):
     width: int
     height: int
-    duration: float  # en secondes
+    duration: float
     format: str
     codec: Optional[str] = None
     bitrate: Optional[int] = None
@@ -280,7 +280,7 @@ class VideoMetadata(BaseModel):
 
 
 class AudioMetadata(BaseModel):
-    duration: float  # en secondes
+    duration: float
     format: str
     codec: Optional[str] = None
     bitrate: Optional[int] = None

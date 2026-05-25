@@ -35,12 +35,20 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler"""
     # Startup
     setup_logging()
-    # await create_db_and_tables()  # Commented out to skip database connections
-    
+    try:
+        from config.database import create_db_and_tables
+        await create_db_and_tables()
+    except Exception as e:
+        print(f"⚠️  Database startup warning (non-fatal): {e}")
+
     yield
-    
+
     # Shutdown
-    # await close_db_connections()  # Commented out to skip database connections
+    try:
+        from config.database import close_db_connections
+        await close_db_connections()
+    except Exception as e:
+        print(f"⚠️  Database shutdown warning: {e}")
 
 
 # Create FastAPI app

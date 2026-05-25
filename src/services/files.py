@@ -189,14 +189,59 @@ class StorageService:
             return {}
     
     def _extract_video_metadata(self, file_path: str) -> Dict[str, Any]:
-        """Extrait les métadonnées d'une vidéo"""
-        # TODO: Implémenter avec ffmpeg-python
-        return {}
-    
+        """Extrait les métadonnées d'une vidéo via ffprobe (subprocess)"""
+        try:
+            import subprocess
+            import json as _json
+
+            cmd = [
+                "ffprobe", "-v", "quiet", "-print_format", "json",
+                "-show_streams", "-show_format", file_path,
+            ]
+            result = subprocess.run(cmd, capture_output=True, text=True, timeout=10)
+            if result.returncode != 0:
+                return {}
+
+            data = _json.loads(result.stdout)
+            fmt = data.get("format", {})
+            video_stream = next(
+                (s for s in data.get("streams", []) if s.get("codec_type") == "video"),
+                {},
+            )
+            return {
+                "width": video_stream.get("width"),
+                "height": video_stream.get("height"),
+                "duration": float(fmt.get("duration", 0)),
+                "format": fmt.get("format_name"),
+                "codec": video_stream.get("codec_name"),
+                "bitrate": int(fmt.get("bit_rate", 0)) if fmt.get("bit_rate") else None,
+                "fps": eval(video_stream["r_frame_rate"]) if video_stream.get("r_frame_rate") else None,
+            }
+        except (FileNotFoundError, Exception):
+            # ffprobe not installed or other error — return empty metadata
+            return {}
+
     def _extract_audio_metadata(self, file_path: str) -> Dict[str, Any]:
-        """Extrait les métadonnées d'un fichier audio"""
-        # TODO: Implémenter avec mutagen
-        return {}
+        """Extrait les métadonnées d'un fichier audio via mutagen"""
+        try:
+            from mutagen import File as MutagenFile
+
+            audio = MutagenFile(file_path)
+            if audio is None:
+                return {}
+
+            info = audio.info
+            return {
+                "duration": getattr(info, "length", None),
+                "bitrate": getattr(info, "bitrate", None),
+                "sample_rate": getattr(info, "sample_rate", None),
+                "channels": getattr(info, "channels", None),
+                "format": type(audio).__name__,
+            }
+        except ImportError:
+            return {}
+        except Exception:
+            return {}
 
 
 class FileService:
@@ -240,7 +285,7 @@ class FileService:
                 file_path=file_path,
                 storage_provider=StorageProvider.LOCAL,
                 storage_url=storage_url,
-                metadata=metadata,
+                file_metadata=metadata,
                 description=upload_request.description,
                 alt_text=upload_request.alt_text,
                 is_public=upload_request.is_public,
@@ -514,6 +559,140 @@ class FileService:
         
         return True
     
+    async def get_folder(self, folder_id: str, user_id: str, db: AsyncSession) -> Optional[FolderResponse]:
+        """Récupère un dossier par ID"""
+        result = await db.execute(select(FileFolder).where(FileFolder.id == folder_id))
+        folder = result.scalar_one_or_none()
+        if not folder:
+            return None
+        if str(folder.owner_id) != user_id:
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        return await self._folder_to_response(folder, db)
+
+    async def update_folder(self, folder_id: str, folder_update, user_id: str, db: AsyncSession) -> Optional[FolderResponse]:
+        """Met à jour un dossier"""
+        result = await db.execute(select(FileFolder).where(FileFolder.id == folder_id))
+        folder = result.scalar_one_or_none()
+        if not folder:
+            return None
+        if str(folder.owner_id) != user_id:
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        for field, value in folder_update.model_dump(exclude_unset=True).items():
+            setattr(folder, field, value)
+        await db.commit()
+        await db.refresh(folder)
+        return await self._folder_to_response(folder, db)
+
+    async def delete_folder(self, folder_id: str, user_id: str, db: AsyncSession) -> bool:
+        """Supprime un dossier"""
+        result = await db.execute(select(FileFolder).where(FileFolder.id == folder_id))
+        folder = result.scalar_one_or_none()
+        if not folder:
+            return False
+        if str(folder.owner_id) != user_id:
+            raise HTTPException(status_code=403, detail="Accès refusé")
+        await db.delete(folder)
+        await db.commit()
+        return True
+
+    async def get_folder_tree(self, user_id: str, db: AsyncSession) -> list:
+        """Récupère l'arborescence des dossiers"""
+        result = await db.execute(
+            select(FileFolder).where(and_(FileFolder.owner_id == user_id, FileFolder.parent_id == None))
+        )
+        root_folders = result.scalars().all()
+        return [await self._folder_to_response(f, db) for f in root_folders]
+
+    async def remove_file_from_folder(self, file_id: str, folder_id: str, user_id: str, db: AsyncSession) -> bool:
+        """Retire un fichier d'un dossier"""
+        result = await db.execute(
+            select(FileFolderItem).where(and_(FileFolderItem.file_id == file_id, FileFolderItem.folder_id == folder_id))
+        )
+        item = result.scalar_one_or_none()
+        if not item:
+            return False
+        await db.delete(item)
+        await db.commit()
+        return True
+
+    async def create_file_permission(self, file_id: str, permission_data, user_id: str, db: AsyncSession):
+        """Crée une permission sur un fichier"""
+        from api.models.sql.files import FilePermission
+        from api.schemas.files import FilePermissionResponse
+        permission = FilePermission(
+            file_id=file_id,
+            user_id=str(permission_data.user_id) if permission_data.user_id else None,
+            group_id=str(permission_data.group_id) if permission_data.group_id else None,
+            granted_by=user_id,
+            can_view=permission_data.can_view,
+            can_download=permission_data.can_download,
+            can_edit=permission_data.can_edit,
+            can_delete=permission_data.can_delete,
+            can_share=permission_data.can_share,
+        )
+        db.add(permission)
+        await db.commit()
+        await db.refresh(permission)
+        return FilePermissionResponse(
+            id=permission.id, file_id=permission.file_id,
+            user_id=permission.user_id, group_id=permission.group_id,
+            user_name=None, group_name=None,
+            granted_by=permission.granted_by, grantor_name=user_id,
+            granted_at=permission.granted_at, expires_at=permission.expires_at,
+            can_view=permission.can_view, can_download=permission.can_download,
+            can_edit=permission.can_edit, can_delete=permission.can_delete,
+            can_share=permission.can_share,
+        )
+
+    async def get_file_permissions(self, file_id: str, user_id: str, db: AsyncSession) -> list:
+        """Récupère les permissions d'un fichier"""
+        from api.models.sql.files import FilePermission
+        from api.schemas.files import FilePermissionResponse
+        result = await db.execute(select(FilePermission).where(FilePermission.file_id == file_id))
+        permissions = result.scalars().all()
+        return [
+            FilePermissionResponse(
+                id=p.id, file_id=p.file_id, user_id=p.user_id, group_id=p.group_id,
+                user_name=None, group_name=None, granted_by=p.granted_by, grantor_name="",
+                granted_at=p.granted_at, expires_at=p.expires_at,
+                can_view=p.can_view, can_download=p.can_download,
+                can_edit=p.can_edit, can_delete=p.can_delete, can_share=p.can_share,
+            )
+            for p in permissions
+        ]
+
+    async def delete_file_permission(self, permission_id: str, user_id: str, db: AsyncSession) -> bool:
+        """Supprime une permission"""
+        from api.models.sql.files import FilePermission
+        result = await db.execute(select(FilePermission).where(FilePermission.id == permission_id))
+        permission = result.scalar_one_or_none()
+        if not permission:
+            return False
+        await db.delete(permission)
+        await db.commit()
+        return True
+
+    async def get_user_file_stats(self, user_id: str, db: AsyncSession):
+        """Récupère les statistiques des fichiers d'un utilisateur"""
+        from api.schemas.files import FileStats
+        total_result = await db.execute(
+            select(func.count()).select_from(FileShare).where(
+                and_(FileShare.uploaded_by == user_id, FileShare.status != FileStatus.DELETED)
+            )
+        )
+        total = total_result.scalar()
+        size_result = await db.execute(
+            select(func.sum(FileShare.file_size)).where(
+                and_(FileShare.uploaded_by == user_id, FileShare.status != FileStatus.DELETED)
+            )
+        )
+        total_size = size_result.scalar() or 0
+        return FileStats(
+            total_files=total, total_size=total_size,
+            files_by_type={}, storage_used=total_size,
+            files_uploaded_today=0
+        )
+
     async def _check_file_permission(
         self,
         file_record: FileShare,
@@ -598,7 +777,7 @@ class FileService:
             file_path=file_record.file_path,
             storage_provider=file_record.storage_provider,
             storage_url=file_record.storage_url,
-            metadata=file_record.metadata,
+            metadata=file_record.file_metadata,
             description=file_record.description,
             alt_text=file_record.alt_text,
             is_public=file_record.is_public,

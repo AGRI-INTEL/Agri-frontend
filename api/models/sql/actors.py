@@ -368,27 +368,66 @@ class UserRole(Base):
 def extend_user_model():
     """Fonction pour étendre le modèle User existant"""
     from api.models.sql.user import User
-    
+
     # Ajout de nouvelles relations
     User.actor_profile = relationship("Actor", back_populates="user", uselist=False)
     User.user_roles = relationship("UserRole", back_populates="user")
-    
+
     def has_permission(self, permission_name: str, contexte_secteur: Optional[str] = None) -> bool:
-        """Vérifier si l'utilisateur a une permission spécifique"""
-        # Logique de vérification des permissions
-        # À implémenter avec les rôles hiérarchiques
-        pass
-    
-    def get_secteurs_autorises(self) -> list[SousSecteursEnum]:
+        """
+        Vérifie si l'utilisateur possède une permission spécifique.
+
+        La permission est accordée si au moins un rôle actif de l'utilisateur
+        (ou un de ses rôles parents dans la hiérarchie) contient la permission.
+
+        Args:
+            permission_name: nom de la permission, ex. "vegetal:producteur:create"
+            contexte_secteur: secteur optionnel pour filtrer les rôles contextuels
+
+        Returns:
+            True si la permission est accordée, False sinon
+        """
+        if not hasattr(self, "user_roles") or not self.user_roles:
+            return False
+
+        def _role_has_permission(role, visited=None) -> bool:
+            """Parcours récursif de la hiérarchie des rôles."""
+            if visited is None:
+                visited = set()
+            if role.id in visited:
+                return False
+            visited.add(role.id)
+
+            # Vérifier les permissions directes du rôle
+            for perm in (role.permissions or []):
+                if perm.name == permission_name:
+                    return True
+
+            # Remonter vers le rôle parent
+            if role.parent:
+                return _role_has_permission(role.parent, visited)
+
+            return False
+
+        for user_role in self.user_roles:
+            if not user_role.is_active:
+                continue
+            # Filtrer par secteur si demandé
+            if contexte_secteur and user_role.contexte_secteur:
+                if user_role.contexte_secteur.value != contexte_secteur:
+                    continue
+            if _role_has_permission(user_role.role):
+                return True
+
+        return False
+
+    def get_secteurs_autorises(self) -> list:
         """Retourner les secteurs auxquels l'utilisateur a accès"""
         secteurs = []
-        for user_role in self.user_roles:
+        for user_role in (self.user_roles or []):
             if user_role.is_active and user_role.role.secteur_competence:
                 secteurs.append(user_role.role.secteur_competence)
         return list(set(secteurs))
-    
+
     User.has_permission = has_permission
     User.get_secteurs_autorises = get_secteurs_autorises
-
-# Appel de la fonction d'extension
-# extend_user_model()  # À décommenter après import des modèles

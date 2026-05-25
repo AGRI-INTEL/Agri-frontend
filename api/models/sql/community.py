@@ -194,6 +194,7 @@ class Comment(Base):
     parent = relationship("Comment", remote_side=[id], back_populates="replies")
     replies = relationship("Comment", back_populates="parent", cascade="all, delete-orphan")
     reactions = relationship("Reaction", back_populates="comment", cascade="all, delete-orphan")
+    attachments = relationship("FileAttachment", back_populates="comment", cascade="all, delete-orphan")
     
     __table_args__ = (
         Index('ix_comments_author_id', 'author_id'),

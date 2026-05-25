@@ -86,10 +86,13 @@ async def login_user(
             headers={"WWW-Authenticate": "Bearer"},
         )
     
-    # Create session
-    user_agent = request.headers.get("user-agent")
-    ip_address = request.client.host
-    await session_service.create_session(str(user.id), user_agent, ip_address)
+    # Create session (optional — non-fatal if Redis unavailable)
+    try:
+        user_agent = request.headers.get("user-agent", "unknown")
+        ip_address = request.client.host if request.client else "0.0.0.0"
+        await session_service.create_session(str(user.id), user_agent, ip_address)
+    except Exception as e:
+        print(f"⚠️  Session creation failed (non-fatal): {e}")
 
     # Create tokens
     access_token_expires = timedelta(minutes=settings.JWT_ACCESS_TOKEN_EXPIRE_MINUTES)
@@ -448,14 +451,24 @@ _api_keys: dict = {}
 async def enable_2fa(
     current_user: User = Depends(get_current_active_user),
 ):
-    """Active l'authentification à deux facteurs"""
-    secret = base64.b32encode(secrets.token_bytes(20)).decode("utf-8")
-    backup_codes = [secrets.token_hex(4).upper() for _ in range(8)]
-    _2fa_secrets[str(current_user.id)] = {"secret": secret, "backup_codes": backup_codes, "enabled": False}
+    """Active l'authentification à deux facteurs (TOTP via pyotp)"""
+    try:
+        import pyotp
+    except ImportError:
+        raise HTTPException(status_code=501, detail="pyotp non installé. Exécutez: pip install pyotp")
 
-    qr_url = (
-        f"otpauth://totp/AgriIntel360:{current_user.email}"
-        f"?secret={secret}&issuer=AgriIntel360"
+    secret = pyotp.random_base32()
+    backup_codes = [secrets.token_hex(4).upper() for _ in range(8)]
+    _2fa_secrets[str(current_user.id)] = {
+        "secret": secret,
+        "backup_codes": backup_codes,
+        "enabled": False,
+    }
+
+    totp = pyotp.TOTP(secret)
+    qr_url = totp.provisioning_uri(
+        name=current_user.email,
+        issuer_name="AgriIntel360",
     )
     return TwoFactorSetup(secret_key=secret, qr_code_url=qr_url, backup_codes=backup_codes)
 
@@ -465,17 +478,31 @@ async def verify_2fa(
     body: TwoFactorVerify,
     current_user: User = Depends(get_current_active_user),
 ):
-    """Vérifie le code 2FA et active définitivement"""
+    """Vérifie le code TOTP et active définitivement le 2FA"""
+    try:
+        import pyotp
+    except ImportError:
+        raise HTTPException(status_code=501, detail="pyotp non installé. Exécutez: pip install pyotp")
+
     user_2fa = _2fa_secrets.get(str(current_user.id))
     if not user_2fa:
         raise HTTPException(status_code=400, detail="2FA non initialisé. Appelez /2fa/enable d'abord.")
 
-    # Validation simplifiée (en prod: utiliser pyotp.TOTP(secret).verify(code))
-    if len(body.code) != 6 or not body.code.isdigit():
-        raise HTTPException(status_code=400, detail="Code invalide")
+    totp = pyotp.TOTP(user_2fa["secret"])
+    # valid_window=1 accepte le code précédent et suivant (30 s de tolérance)
+    if not totp.verify(body.code, valid_window=1):
+        # Vérifier les codes de secours
+        if body.code.upper() not in user_2fa.get("backup_codes", []):
+            raise HTTPException(status_code=400, detail="Code TOTP invalide")
+        # Consommer le code de secours
+        user_2fa["backup_codes"].remove(body.code.upper())
 
     _2fa_secrets[str(current_user.id)]["enabled"] = True
-    return {"message": "2FA activé avec succès", "enabled": True}
+    return {
+        "message": "2FA activé avec succès",
+        "enabled": True,
+        "backup_codes_remaining": len(user_2fa.get("backup_codes", [])),
+    }
 
 
 @router.delete("/2fa/disable")
@@ -485,6 +512,18 @@ async def disable_2fa(
     """Désactive le 2FA"""
     _2fa_secrets.pop(str(current_user.id), None)
     return {"message": "2FA désactivé"}
+
+
+@router.get("/2fa/status")
+async def get_2fa_status(
+    current_user: User = Depends(get_current_active_user),
+):
+    """Retourne le statut 2FA de l'utilisateur"""
+    user_2fa = _2fa_secrets.get(str(current_user.id))
+    return {
+        "enabled": user_2fa.get("enabled", False) if user_2fa else False,
+        "backup_codes_remaining": len(user_2fa.get("backup_codes", [])) if user_2fa else 0,
+    }
 
 
 # ── API Keys ───────────────────────────────────────────────────────────────────
@@ -552,15 +591,95 @@ async def delete_api_key(
 # ── OAuth Google (stub) ────────────────────────────────────────────────────────
 
 @router.get("/oauth/google")
-async def oauth_google_redirect():
-    """Redirection OAuth Google (à configurer avec client_id Google)"""
-    # En prod: utiliser authlib ou python-social-auth
+async def oauth_google_redirect(request: Request):
+    """Redirige vers Google pour l'authentification OAuth2"""
+    from config.config import get_settings as _gs
+    _settings = _gs()
+
+    google_client_id = getattr(_settings, "GOOGLE_CLIENT_ID", None)
+    if not google_client_id:
+        return {
+            "message": "OAuth Google non configuré",
+            "setup_required": [
+                "Ajouter GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET dans .env",
+                "Configurer le callback URL dans Google Console",
+            ],
+            "callback_url": f"{_settings.FRONTEND_URL}/api/v1/auth/oauth/google/callback",
+        }
+
+    try:
+        from authlib.integrations.starlette_client import OAuth
+        oauth = OAuth()
+        oauth.register(
+            name="google",
+            client_id=google_client_id,
+            client_secret=getattr(_settings, "GOOGLE_CLIENT_SECRET", ""),
+            server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+            client_kwargs={"scope": "openid email profile"},
+        )
+        redirect_uri = f"{_settings.FRONTEND_URL}/api/v1/auth/oauth/google/callback"
+        return await oauth.google.authorize_redirect(request, redirect_uri)
+    except ImportError:
+        return {"message": "authlib non installé. Exécutez: pip install authlib"}
+
+
+@router.get("/oauth/google/callback")
+async def oauth_google_callback(request: Request, db: AsyncSession = Depends(get_db)):
+    """Callback OAuth Google — échange le code contre un token AgriIntel360"""
+    from config.config import get_settings as _gs
+    _settings = _gs()
+
+    google_client_id = getattr(_settings, "GOOGLE_CLIENT_ID", None)
+    if not google_client_id:
+        raise HTTPException(status_code=501, detail="OAuth Google non configuré")
+
+    try:
+        from authlib.integrations.starlette_client import OAuth
+        oauth = OAuth()
+        oauth.register(
+            name="google",
+            client_id=google_client_id,
+            client_secret=getattr(_settings, "GOOGLE_CLIENT_SECRET", ""),
+            server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
+            client_kwargs={"scope": "openid email profile"},
+        )
+        token = await oauth.google.authorize_access_token(request)
+        user_info = token.get("userinfo") or await oauth.google.userinfo(token=token)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Erreur OAuth Google: {e}")
+
+    email = user_info.get("email")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email non fourni par Google")
+
+    # Trouver ou créer l'utilisateur
+    user = await AuthService.get_user_by_email(db, email)
+    if not user:
+        import re as _re
+        base_username = _re.sub(r"[^a-zA-Z0-9_]", "_", email.split("@")[0])[:40]
+        # Ensure uniqueness
+        username = base_username
+        suffix = 1
+        while await AuthService.get_user_by_username(db, username):
+            username = f"{base_username}_{suffix}"
+            suffix += 1
+
+        user = await AuthService.create_user(db, {
+            "email": email,
+            "username": username,
+            "full_name": user_info.get("name", username),
+            "password": secrets.token_urlsafe(32),  # random password — OAuth only
+            "is_verified": True,
+            "is_active": True,
+        })
+
+    token_data = {"sub": str(user.id), "username": user.username, "role": user.role.value}
+    access_token = AuthService.create_access_token(data=token_data)
+    refresh_token = AuthService.create_refresh_token(data=token_data)
+
     return {
-        "message": "OAuth Google non configuré",
-        "setup_required": [
-            "Ajouter GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET dans .env",
-            "Installer: pip install authlib",
-            "Configurer le callback URL dans Google Console",
-        ],
-        "callback_url": "http://localhost:8000/api/v1/auth/oauth/google/callback",
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user": UserResponse.model_validate(user),
     }

@@ -78,7 +78,8 @@ async def get_user(
 
 @router.get("/stats/overview")
 async def get_user_stats(
-    current_user: User = Depends(require_admin)
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db)
 ):
     """Get user statistics (admin only)"""
     # Run all queries in parallel
