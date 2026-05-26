@@ -62,7 +62,12 @@ class Settings(BaseSettings):
     
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = Field(
-        default=["http://localhost:3000", "http://localhost:8000", "http://localhost:5173"]
+        default=[
+            "http://localhost:3000",
+            "http://127.0.0.1:3000",
+            "http://localhost:8000",
+            "http://localhost:5173",
+        ]
     )
     
     @validator("BACKEND_CORS_ORIGINS", pre=True)

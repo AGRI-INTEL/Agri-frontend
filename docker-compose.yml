@@ -67,7 +67,7 @@ services:
 
   # ── Elasticsearch ────────────────────────────
   elasticsearch:
-    image: elasticsearch:8.12.0
+    image: elasticsearch:8.11.1
     container_name: agriintel_elasticsearch
     restart: unless-stopped
     environment:
@@ -111,12 +111,31 @@ services:
         condition: service_healthy
       mongodb:
         condition: service_healthy
+      elasticsearch:
+        condition: service_healthy
     healthcheck:
       test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
       interval: 30s
       timeout: 10s
       retries: 3
       start_period: 20s
+    networks:
+      - agriintel_net
+
+  # ── pgAdmin (interface web pour PostgreSQL) ─────────────────
+  pgadmin:
+    image: dpage/pgadmin4:7
+    container_name: agriintel_pgadmin
+    restart: unless-stopped
+    environment:
+      PGADMIN_DEFAULT_EMAIL: admin@agri.local
+      PGADMIN_DEFAULT_PASSWORD: admin
+    ports:
+      - "5050:80"
+    volumes:
+      - pgadmin_data:/var/lib/pgadmin
+    depends_on:
+      - postgres
     networks:
       - agriintel_net
 
@@ -146,6 +165,7 @@ volumes:
   mongodb_data:
   redis_data:
   elasticsearch_data:
+  pgadmin_data:
   mlflow_artifacts:
   mlflow_runs:
 

@@ -62,13 +62,51 @@ app = FastAPI(
     lifespan=lifespan
 )
 
+
+# Ensure CORS headers are always present (including on exceptions)
+@app.middleware("http")
+async def ensure_cors_headers(request: Request, call_next):
+    # Handle OPTIONS preflight quickly
+    if request.method == "OPTIONS":
+        from fastapi.responses import Response
+        origin = request.headers.get("origin")
+        res = Response(status_code=204)
+        if origin and (origin in settings.BACKEND_CORS_ORIGINS or "*" in settings.BACKEND_CORS_ORIGINS):
+            res.headers["Access-Control-Allow-Origin"] = origin
+        else:
+            res.headers["Access-Control-Allow-Origin"] = ",".join(settings.BACKEND_CORS_ORIGINS)
+        res.headers["Access-Control-Allow-Credentials"] = "true"
+        res.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS,PATCH"
+        res.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+        return res
+
+    try:
+        response = await call_next(request)
+    except Exception as exc:
+        # Ensure we surface a JSON error but include CORS headers so browser can see it
+        response = JSONResponse(status_code=500, content={"detail": str(exc)})
+
+    origin = request.headers.get("origin")
+    if origin and (origin in settings.BACKEND_CORS_ORIGINS or "*" in settings.BACKEND_CORS_ORIGINS):
+        response.headers["Access-Control-Allow-Origin"] = origin
+    else:
+        # fall back to configured origins (use first if available)
+        response.headers["Access-Control-Allow-Origin"] = ",".join(settings.BACKEND_CORS_ORIGINS)
+    response.headers.setdefault("Access-Control-Allow-Credentials", "true")
+    response.headers.setdefault("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS,PATCH")
+    response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin")
+
+    return response
+
 # CORS Middleware
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allow_headers=["*"],
+    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
+    expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
+    max_age=3600,
 )
 
 # Security Middleware
