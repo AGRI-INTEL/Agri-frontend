@@ -11,6 +11,7 @@ from api.routers import (
 )
 from api.routers.health import health_router
 from api.routers.websocket import websocket_router
+from api.routers import mocks
 
 api_v1_router = APIRouter()
 
@@ -46,3 +47,5 @@ api_v1_router.include_router(admin.router,         prefix="/admin",         tags
 # ── Infrastructure ────────────────────────────────────────────────────────────
 api_v1_router.include_router(health_router,                                  tags=["Health"])
 api_v1_router.include_router(websocket_router,                               tags=["WebSocket"])
+# Mock development endpoints (keeps frontend working when full APIs are not implemented)
+api_v1_router.include_router(mocks.router)

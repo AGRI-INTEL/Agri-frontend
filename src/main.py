@@ -39,8 +39,14 @@ async def lifespan(app: FastAPI):
         from config.database import create_db_and_tables
         await create_db_and_tables()
     except Exception as e:
-        print(f"⚠️  Database startup failure: {e}")
-        raise
+        # Do not fail app startup in development when DB is unavailable.
+        # Log the error and continue so frontend/dev work can proceed.
+        print(f"❌ Database initialization error: {e}")
+        if settings.DEBUG:
+            print("⚠️  Database startup failure (continuing in DEBUG mode)")
+        else:
+            # In production, we should fail early.
+            raise
 
     yield
 
