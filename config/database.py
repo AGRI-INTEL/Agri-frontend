@@ -11,10 +11,11 @@ import redis.asyncio as aioredis
 from elasticsearch import AsyncElasticsearch
 
 from config.config import get_settings
-from api.models.sql import base as models_base
+from api.models.sql import Base
 
 settings = get_settings()
 
+# Cleaned up duplicate imports or unused parts
 # SQLAlchemy (PostgreSQL)
 engine = create_async_engine(
     settings.database_url_async,
@@ -30,7 +31,7 @@ async_session_maker = async_sessionmaker(
 )
 
 # Use the models' Base to ensure metadata includes all models
-Base = models_base.Base
+Base = Base
 
 # MongoDB
 mongodb_client: AsyncIOMotorClient = None

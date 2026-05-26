@@ -10,7 +10,7 @@ from decimal import Decimal
 from typing import Optional
 
 from sqlalchemy import (Boolean, Column, DateTime, Enum, Float, ForeignKey, Index, Integer,
-                       Numeric, String, Text, UniqueConstraint)
+                       Numeric, String, Table, Text, UniqueConstraint)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
