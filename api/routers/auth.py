@@ -26,6 +26,16 @@ router = APIRouter()
 bearer_scheme = HTTPBearer()
 
 
+def serialize_user(user: User) -> UserResponse:
+    """Convert a SQLAlchemy User object into a plain dict for Pydantic validation"""
+    user_data = {
+        key: value
+        for key, value in user.__dict__.items()
+        if not key.startswith("_") and key != "hashed_password"
+    }
+    return UserResponse.model_validate(user_data)
+
+
 @router.post("/register", response_model=UserResponse, status_code=status.HTTP_201_CREATED)
 async def register_user(
     user_data: UserCreate,
@@ -57,11 +67,8 @@ async def register_user(
     token = AuthService.create_verification_token(user.id)
     background_tasks.add_task(send_verification_email, user.email, token)
     
-    return UserResponse.model_validate(user)
+    return serialize_user(user)
 
-
-from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request
-from src.services.session import session_service
 
 @router.post("/login", response_model=UserLoginResponse)
 async def login_user(
@@ -111,7 +118,7 @@ async def login_user(
     refresh_token = AuthService.create_refresh_token(data=token_data)
     
     return UserLoginResponse(
-        user=UserResponse.model_validate(user),
+        user=serialize_user(user),
         access_token=access_token,
         refresh_token=refresh_token,
         expires_in=int(access_token_expires.total_seconds())
@@ -221,7 +228,7 @@ async def get_current_user_info(
     current_user: User = Depends(get_current_active_user)
 ):
     """Get current user information"""
-    return UserResponse.model_validate(current_user)
+    return serialize_user(current_user)
 
 
 @router.put("/me", response_model=UserResponse)
@@ -245,7 +252,7 @@ async def update_current_user(
     await db.commit()
     await db.refresh(current_user)
     
-    return UserResponse.model_validate(current_user)
+    return serialize_user(current_user)
 
 
 @router.post("/change-password")
@@ -681,5 +688,5 @@ async def oauth_google_callback(request: Request, db: AsyncSession = Depends(get
         "access_token": access_token,
         "refresh_token": refresh_token,
         "token_type": "bearer",
-        "user": UserResponse.model_validate(user),
+        "user": serialize_user(user),
     }

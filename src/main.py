@@ -39,7 +39,8 @@ async def lifespan(app: FastAPI):
         from config.database import create_db_and_tables
         await create_db_and_tables()
     except Exception as e:
-        print(f"⚠️  Database startup warning (non-fatal): {e}")
+        print(f"⚠️  Database startup failure: {e}")
+        raise
 
     yield
 

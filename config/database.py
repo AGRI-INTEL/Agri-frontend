@@ -4,6 +4,7 @@ Database configuration and connections
 
 import asyncio
 from typing import AsyncGenerator
+from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
 from sqlalchemy.orm import declarative_base
 from motor.motor_asyncio import AsyncIOMotorClient
@@ -75,7 +76,15 @@ async def create_db_and_tables():
     try:
         # Create PostgreSQL tables
         async with engine.begin() as conn:
-            await conn.run_sync(Base.metadata.create_all)
+            try:
+                await conn.run_sync(Base.metadata.create_all)
+            except IntegrityError as ie:
+                # Ignore duplicate enum type creation errors when the database
+                # already contains the type and the rest of the schema is present.
+                if "pg_type_typname_nsp_index" in str(ie.orig):
+                    print("⚠️ SQLAlchemy enum type already exists; continuing database initialization.")
+                else:
+                    raise
 
         # Ensure the default administrator account exists.
         # Kept after SQL table creation and before external services so the admin

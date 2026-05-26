@@ -18,6 +18,9 @@ depends_on = None
 def upgrade():
     # Extensions
     op.execute('CREATE EXTENSION IF NOT EXISTS "postgis";')
+    op.execute('CREATE EXTENSION IF NOT EXISTS "postgis_topology";')
+    op.execute('CREATE EXTENSION IF NOT EXISTS cube;')
+    op.execute('CREATE EXTENSION IF NOT EXISTS earthdistance;')
     op.execute('CREATE EXTENSION IF NOT EXISTS "pg_trgm";')
     op.execute('CREATE EXTENSION IF NOT EXISTS "uuid-ossp";')
 
@@ -126,6 +129,9 @@ def downgrade():
     op.execute('DROP TYPE unit_type;')
     op.execute('DROP TYPE user_role;')
     
+    op.execute('DROP EXTENSION IF EXISTS earthdistance;')
+    op.execute('DROP EXTENSION IF EXISTS cube;')
+    op.execute('DROP EXTENSION IF EXISTS "postgis_topology";')
     op.execute('DROP EXTENSION IF EXISTS "postgis";')
     op.execute('DROP EXTENSION IF EXISTS "pg_trgm";')
     op.execute('DROP EXTENSION IF EXISTS "uuid-ossp";')

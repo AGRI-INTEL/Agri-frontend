@@ -4,7 +4,7 @@ Authentication and User Pydantic schemas
 
 from typing import Optional, List
 from datetime import datetime
-from pydantic import BaseModel, EmailStr, Field, validator
+from pydantic import BaseModel, ConfigDict, EmailStr, Field, validator
 from enum import Enum
 import uuid
 
@@ -56,8 +56,7 @@ class UserResponse(BaseModel):
     updated_at: datetime
     last_login: Optional[datetime] = None
 
-    class Config:
-        from_attributes = True
+    model_config = ConfigDict(from_attributes=True)
 
 
 class UserLogin(BaseModel):
