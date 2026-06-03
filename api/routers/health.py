@@ -4,7 +4,10 @@ Health check endpoints
 
 from fastapi import APIRouter, Depends
 from datetime import datetime
-import psutil
+try:
+    import psutil
+except Exception:
+    psutil = None
 import platform
 
 from config.database import get_all_health_status
@@ -31,13 +34,22 @@ async def detailed_health_check():
     """Detailed health check with database status"""
     db_status = await get_all_health_status()
     
-    # System information
+    # System information (psutil optional)
+    if psutil:
+        cpu = psutil.cpu_percent()
+        mem = psutil.virtual_memory().percent
+        disk = psutil.disk_usage('/').percent if platform.system() != 'Windows' else psutil.disk_usage('C:\\').percent
+    else:
+        cpu = None
+        mem = None
+        disk = None
+
     system_info = {
         "platform": platform.system(),
         "python_version": platform.python_version(),
-        "cpu_usage": psutil.cpu_percent(),
-        "memory_usage": psutil.virtual_memory().percent,
-        "disk_usage": psutil.disk_usage('/').percent if platform.system() != 'Windows' else psutil.disk_usage('C:\\').percent
+        "cpu_usage": cpu,
+        "memory_usage": mem,
+        "disk_usage": disk
     }
     
     # Overall health status

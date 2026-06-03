@@ -2,10 +2,12 @@
 Service de gestion des fichiers avec support multi-stockage
 """
 
+import asyncio
 import os
 import uuid
 import hashlib
 import mimetypes
+from io import BytesIO
 from datetime import datetime, timedelta
 from typing import Optional, List, Dict, Any, BinaryIO, Tuple
 from pathlib import Path
@@ -22,6 +24,14 @@ try:
 except ImportError:
     Image = None
     PIL_AVAILABLE = False
+
+try:
+    import cloudinary
+    import cloudinary.uploader
+    CLOUDINARY_AVAILABLE = True
+except ImportError:
+    cloudinary = None
+    CLOUDINARY_AVAILABLE = False
 
 try:
     import magic
@@ -122,8 +132,14 @@ class StorageService:
         return f"{user_id}_{timestamp}_{file_uuid}{file_ext}"
     
     async def save_file(self, file: UploadFile, filename: str) -> Tuple[str, str]:
+        """Save a file either locally or to Cloudinary."""
+        if self.cloudinary_enabled:
+            return await self._save_file_cloudinary(file, filename)
+
+        return await self._save_file_local(file, filename)
+
+    async def _save_file_local(self, file: UploadFile, filename: str) -> Tuple[str, str]:
         """Sauvegarde un fichier sur le disque"""
-        
         # Créer la structure de dossiers par date
         date_path = datetime.now().strftime("%Y/%m/%d")
         full_dir = self.upload_dir / date_path
@@ -138,10 +154,39 @@ class StorageService:
             await out_file.write(content)
         
         return str(file_path), storage_url
-    
-    async def delete_file(self, file_path: str) -> bool:
-        """Supprime un fichier du disque"""
-        
+
+    async def _save_file_cloudinary(self, file: UploadFile, filename: str) -> Tuple[str, str]:
+        """Sauvegarde un fichier sur Cloudinary."""
+        if not CLOUDINARY_AVAILABLE:
+            raise FileValidationError("Cloudinary n'est pas installé sur le serveur")
+
+        file_bytes = await file.read()
+        file_stream = BytesIO(file_bytes)
+        public_id = f"{settings.CLOUDINARY_UPLOAD_FOLDER}/{filename.rsplit('.', 1)[0]}"
+
+        try:
+            result = await asyncio.to_thread(
+                cloudinary.uploader.upload,
+                file_stream,
+                public_id=public_id,
+                folder=settings.CLOUDINARY_UPLOAD_FOLDER,
+                resource_type="auto",
+                use_filename=False,
+                overwrite=True,
+                unique_filename=False,
+            )
+        except Exception as upload_exc:
+            raise HTTPException(status_code=500, detail=f"Erreur Cloudinary: {upload_exc}")
+
+        storage_url = result.get("secure_url") or result.get("url")
+        public_id_value = result.get("public_id") or public_id
+        return public_id_value, storage_url
+
+    async def delete_file(self, file_path: str, storage_provider: Optional[StorageProvider] = None) -> bool:
+        """Supprime un fichier du stockage local ou distant"""
+        if storage_provider == StorageProvider.CLOUDINARY:
+            return await self._delete_file_cloudinary(file_path)
+
         try:
             if os.path.exists(file_path):
                 os.remove(file_path)
@@ -150,6 +195,21 @@ class StorageService:
             print(f"Erreur suppression fichier {file_path}: {e}")
         
         return False
+
+    async def _delete_file_cloudinary(self, public_id: str) -> bool:
+        if not CLOUDINARY_AVAILABLE:
+            return False
+
+        try:
+            await asyncio.to_thread(
+                cloudinary.uploader.destroy,
+                public_id,
+                resource_type="auto"
+            )
+            return True
+        except Exception as e:
+            print(f"Erreur suppression Cloudinary {public_id}: {e}")
+            return False
     
     def extract_metadata(self, file_path: str, mime_type: str) -> Dict[str, Any]:
         """Extrait les métadonnées d'un fichier"""
@@ -271,9 +331,12 @@ class FileService:
             
             # Sauvegarder le fichier
             file_path, storage_url = await self.storage.save_file(file, filename)
+            storage_provider = StorageProvider.CLOUDINARY if self.storage.cloudinary_enabled else StorageProvider.LOCAL
             
-            # Extraire les métadonnées
-            metadata = self.storage.extract_metadata(file_path, file.content_type)
+            # Extraire les métadonnées uniquement pour les fichiers locaux
+            metadata = {}
+            if storage_provider == StorageProvider.LOCAL:
+                metadata = self.storage.extract_metadata(file_path, file.content_type)
             
             # Créer l'enregistrement en base
             file_record = FileShare(
@@ -283,7 +346,7 @@ class FileService:
                 file_type=file_type,
                 file_size=file.size or 0,
                 file_path=file_path,
-                storage_provider=StorageProvider.LOCAL,
+                storage_provider=storage_provider,
                 storage_url=storage_url,
                 file_metadata=metadata,
                 description=upload_request.description,
@@ -386,8 +449,8 @@ class FileService:
         if not await self._check_file_permission(file_record, user_id, "delete", db):
             raise HTTPException(status_code=403, detail="Accès refusé")
         
-        # Supprimer le fichier du disque
-        await self.storage.delete_file(file_record.file_path)
+        # Supprimer le fichier du stockage
+        await self.storage.delete_file(file_record.file_path, storage_provider=file_record.storage_provider)
         
         # Marquer comme supprimé
         file_record.status = FileStatus.DELETED

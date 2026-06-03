@@ -91,6 +91,7 @@ services:
     build:
       context: .
       dockerfile: Dockerfile
+      network: host
     container_name: agriintel_backend
     restart: unless-stopped
     env_file:

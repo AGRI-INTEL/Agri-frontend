@@ -40,6 +40,7 @@ class FileStatus(str, enum.Enum):
 class StorageProvider(str, enum.Enum):
     """Fournisseurs de stockage"""
     LOCAL = "local"
+    CLOUDINARY = "cloudinary"
     AWS_S3 = "aws_s3"
     AZURE_BLOB = "azure_blob"
     GOOGLE_CLOUD = "google_cloud"

@@ -92,37 +92,53 @@ async def create_db_and_tables():
         from src.services.admin_seed import ensure_default_admin_user
         await ensure_default_admin_user()
         
-        # Initialize MongoDB
-        mongodb_client = AsyncIOMotorClient(settings.MONGODB_URL)
-        mongodb_db = mongodb_client.get_default_database()
-        
-        # Test MongoDB connection
-        await mongodb_db.command("ping")
-        print("✅ MongoDB connected successfully")
-        
-        # Initialize Redis
-        redis_client = aioredis.from_url(
-            settings.REDIS_URL,
-            encoding="utf-8",
-            decode_responses=True
-        )
-        
-        # Test Redis connection
-        await redis_client.ping()
-        print("✅ Redis connected successfully")
-        
-        # Initialize Elasticsearch
-        es_client = AsyncElasticsearch(
-            [settings.ELASTICSEARCH_URL],
-            verify_certs=False
-        )
-        
-        # Test Elasticsearch connection
-        if await es_client.ping():
-            print("✅ Elasticsearch connected successfully")
+        # Initialize MongoDB if enabled
+        if settings.MONGODB_ENABLED and settings.MONGODB_URL:
+            try:
+                mongodb_client = AsyncIOMotorClient(settings.MONGODB_URL)
+                mongodb_db = mongodb_client.get_default_database()
+                await mongodb_db.command("ping")
+                print("✅ MongoDB connected successfully")
+            except Exception as mongo_exc:
+                print(f"⚠️ MongoDB initialization skipped or failed: {mongo_exc}")
+                mongodb_client = None
+                mongodb_db = None
         else:
-            print("❌ Elasticsearch connection failed")
+            print("⚠️ MongoDB is disabled or no URL configured; skipping MongoDB initialization.")
+
+        # Initialize Redis
+        if settings.REDIS_URL:
+            redis_client = aioredis.from_url(
+                settings.REDIS_URL,
+                encoding="utf-8",
+                decode_responses=True
+            )
             
+            # Test Redis connection
+            await redis_client.ping()
+            print("✅ Redis connected successfully")
+        else:
+            print("⚠️ Redis URL not configured; continuing without Redis.")
+
+        # Initialize Elasticsearch if enabled
+        if settings.ELASTICSEARCH_ENABLED and settings.ELASTICSEARCH_URL:
+            try:
+                es_client = AsyncElasticsearch(
+                    [settings.ELASTICSEARCH_URL],
+                    verify_certs=False
+                )
+                
+                if await es_client.ping():
+                    print("✅ Elasticsearch connected successfully")
+                else:
+                    print("❌ Elasticsearch connection failed")
+                    es_client = None
+            except Exception as es_exc:
+                print(f"⚠️ Elasticsearch initialization skipped or failed: {es_exc}")
+                es_client = None
+        else:
+            print("⚠️ Elasticsearch is disabled or no URL configured; skipping Elasticsearch initialization.")
+
         print("✅ All databases initialized successfully")
         
     except Exception as e:

@@ -41,6 +41,13 @@ class Settings(BaseSettings):
     ELASTICSEARCH_URL: str = Field(
         default="http://localhost:9200"
     )
+    MONGODB_ENABLED: bool = True
+    ELASTICSEARCH_ENABLED: bool = True
+    CLOUDINARY_ENABLED: bool = False
+    CLOUDINARY_CLOUD_NAME: Optional[str] = None
+    CLOUDINARY_API_KEY: Optional[str] = None
+    CLOUDINARY_API_SECRET: Optional[str] = None
+    CLOUDINARY_UPLOAD_FOLDER: str = "agriintel"
     
     # JWT Settings
     JWT_SECRET_KEY: str = Field(
@@ -204,6 +211,16 @@ class Settings(BaseSettings):
             "huggingface": self.HUGGINGFACE_API_KEY,
             "langchain": self.LANGCHAIN_API_KEY,
         }
+
+    @property
+    def cloudinary_active(self) -> bool:
+        """Check if Cloudinary storage is configured and enabled."""
+        return bool(
+            self.CLOUDINARY_ENABLED
+            and self.CLOUDINARY_CLOUD_NAME
+            and self.CLOUDINARY_API_KEY
+            and self.CLOUDINARY_API_SECRET
+        )
 
 
 @lru_cache()
