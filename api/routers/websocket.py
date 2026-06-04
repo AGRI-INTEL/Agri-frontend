@@ -66,6 +66,7 @@ manager = ConnectionManager()
 @websocket_router.websocket("/ws/{user_id}")
 async def websocket_endpoint(websocket: WebSocket, user_id: str):
     """WebSocket endpoint for real-time notifications"""
+    logger.info(f"Attempting WebSocket connection for user: {user_id}")
     await manager.connect(websocket, user_id)
     
     try:
@@ -88,10 +89,17 @@ async def websocket_endpoint(websocket: WebSocket, user_id: str):
                 }))
             
     except WebSocketDisconnect:
+        logger.info(f"WebSocket disconnected for user: {user_id}")
         manager.disconnect(websocket, user_id)
     except Exception as e:
         logger.error(f"WebSocket error for user {user_id}: {e}")
         manager.disconnect(websocket, user_id)
+
+
+@websocket_router.websocket("/ws/anonymous")
+async def websocket_anonymous_endpoint(websocket: WebSocket):
+    """Explicit anonymous WebSocket endpoint"""
+    await websocket_endpoint(websocket, "anonymous")
 
 
 async def send_notification(user_id: str, notification: dict):

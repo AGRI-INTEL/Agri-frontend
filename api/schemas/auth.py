@@ -49,6 +49,7 @@ class UserResponse(BaseModel):
     country: Optional[str] = None
     bio: Optional[str] = None
     avatar_url: Optional[str] = None
+    cover_url: Optional[str] = None
     language: str
     timezone: str
     theme: str
@@ -203,3 +204,13 @@ class SecuritySettings(BaseModel):
     suspicious_activity_alerts: bool
     session_timeout_minutes: int
     allowed_ips: List[str]
+
+class UserPreferences(BaseModel):
+    """User preferences schema"""
+    language: str = "fr"
+    timezone: str = "UTC"
+    theme: str = "light"
+    notifications_enabled: bool = True
+    email_notifications: bool = True
+    push_notifications: bool = True
+    marketing_emails: bool = False

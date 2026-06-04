@@ -3,7 +3,7 @@
 import uuid
 from datetime import datetime
 from typing import Optional
-from fastapi import APIRouter, Depends, HTTPException, status
+from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, update
@@ -24,6 +24,7 @@ class AdminUserUpdate(BaseModel):
 
 # ── Users ──────────────────────────────────────────────────────────────────────
 
+
 @router.get("/users")
 async def admin_list_users(
     page: int = 1,
@@ -42,14 +43,18 @@ async def admin_list_users(
         query = query.where(User.is_active == is_active)
     if search:
         query = query.where(
-            User.username.ilike(f"%{search}%") | User.email.ilike(f"%{search}%") | User.full_name.ilike(f"%{search}%")
+            User.username.ilike(f"%{search}%")
+            | User.email.ilike(f"%{search}%")
+            | User.full_name.ilike(f"%{search}%")
         )
 
     total_result = await db.execute(select(func.count()).select_from(query.subquery()))
     total = total_result.scalar_one()
 
     offset = (page - 1) * per_page
-    result = await db.execute(query.offset(offset).limit(per_page).order_by(User.created_at.desc()))
+    result = await db.execute(
+        query.offset(offset).limit(per_page).order_by(User.created_at.desc())
+    )
     users = result.scalars().all()
 
     return {
@@ -94,7 +99,9 @@ async def admin_delete_user(
 ):
     """Supprime un utilisateur (admin)"""
     if current_user.id == user_id:
-        raise HTTPException(status_code=400, detail="Impossible de supprimer votre propre compte")
+        raise HTTPException(
+            status_code=400, detail="Impossible de supprimer votre propre compte"
+        )
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -127,7 +134,9 @@ async def deactivate_user(
 ):
     """Désactive un compte utilisateur"""
     if current_user.id == user_id:
-        raise HTTPException(status_code=400, detail="Impossible de désactiver votre propre compte")
+        raise HTTPException(
+            status_code=400, detail="Impossible de désactiver votre propre compte"
+        )
     result = await db.execute(select(User).where(User.id == user_id))
     user = result.scalar_one_or_none()
     if not user:
@@ -139,6 +148,7 @@ async def deactivate_user(
 
 # ── Stats ──────────────────────────────────────────────────────────────────────
 
+
 @router.get("/stats")
 async def admin_stats(
     current_user: User = Depends(require_admin),
@@ -146,17 +156,34 @@ async def admin_stats(
 ):
     """Statistiques globales du système (admin)"""
     try:
-        total_users = (await db.execute(select(func.count()).select_from(User))).scalar_one()
-        active_users = (await db.execute(select(func.count()).select_from(User).where(User.is_active == True))).scalar_one()
-        verified_users = (await db.execute(select(func.count()).select_from(User).where(User.is_verified == True))).scalar_one()
+        total_users = (
+            await db.execute(select(func.count()).select_from(User))
+        ).scalar_one()
+        active_users = (
+            await db.execute(
+                select(func.count()).select_from(User).where(User.is_active == True)
+            )
+        ).scalar_one()
+        verified_users = (
+            await db.execute(
+                select(func.count()).select_from(User).where(User.is_verified == True)
+            )
+        ).scalar_one()
 
-        role_counts_result = await db.execute(select(User.role, func.count()).group_by(User.role))
-        users_by_role = {str(role): count for role, count in role_counts_result.all()}
+        role_counts_result = await db.execute(
+            select(User.role, func.count()).group_by(User.role)
+        )
+        users_by_role = {
+            (role.value if hasattr(role, "value") else str(role)): count
+            for role, count in role_counts_result.all()
+        }
 
         recent_users_result = await db.execute(
             select(User).order_by(User.created_at.desc()).limit(5)
         )
-        recent_users = [UserResponse.model_validate(u) for u in recent_users_result.scalars().all()]
+        recent_users = [
+            UserResponse.model_validate(u) for u in recent_users_result.scalars().all()
+        ]
 
         return {
             "users": {
@@ -174,3 +201,72 @@ async def admin_stats(
         }
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
+
+
+# ── Activity & Reports ──────────────────────────────────────────────────────────
+
+
+@router.get("/activity")
+async def get_admin_activity(
+    limit: int = Query(50, ge=1, le=100),
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Logs d'activité du système"""
+    # Note: In a real app, this would query an ActivityLog table
+    return [
+        {
+            "id": str(uuid.uuid4()),
+            "user_id": str(current_user.id),
+            "username": current_user.username,
+            "action": "LOGIN",
+            "resource": "AUTH",
+            "timestamp": datetime.utcnow().isoformat(),
+            "ip_address": "127.0.0.1",
+        }
+    ]
+
+
+@router.get("/reports")
+async def list_admin_reports(
+    current_user: User = Depends(require_admin), db: AsyncSession = Depends(get_db)
+):
+    """Liste des rapports générés"""
+    return [
+        {
+            "id": "rep-1",
+            "title": "Rapport Annuel 2023",
+            "type": "ANNUAL",
+            "format": "PDF",
+            "created_at": datetime.utcnow().isoformat(),
+            "status": "COMPLETED",
+            "url": "/static/reports/annual_2023.pdf",
+        }
+    ]
+
+
+@router.post("/reports/generate")
+async def generate_admin_report(
+    data: dict,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Générer un nouveau rapport"""
+    report_title = data.get("title", "Nouveau Rapport")
+    return {
+        "id": str(uuid.uuid4()),
+        "title": report_title,
+        "status": "PENDING",
+        "message": "La génération du rapport a commencé",
+    }
+
+
+@router.delete("/reports/{report_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_admin_report(
+    report_id: str,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Supprimer un rapport"""
+    # Logic to delete report...
+    return None

@@ -3,9 +3,11 @@ Database configuration and connections
 """
 
 import asyncio
+import logging
 from typing import AsyncGenerator
 from sqlalchemy.exc import IntegrityError
 from sqlalchemy.ext.asyncio import AsyncSession, create_async_engine, async_sessionmaker
+from sqlalchemy import inspect as sa_inspect, text
 from sqlalchemy.orm import declarative_base
 from motor.motor_asyncio import AsyncIOMotorClient
 import redis.asyncio as aioredis
@@ -15,6 +17,7 @@ from config.config import get_settings
 from api.models.sql import Base
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 # Cleaned up duplicate imports or unused parts
 # SQLAlchemy (PostgreSQL)
@@ -26,9 +29,7 @@ engine = create_async_engine(
 )
 
 async_session_maker = async_sessionmaker(
-    engine, 
-    class_=AsyncSession, 
-    expire_on_commit=False
+    engine, class_=AsyncSession, expire_on_commit=False
 )
 
 # Use the models' Base to ensure metadata includes all models
@@ -69,12 +70,87 @@ async def get_elasticsearch():
     return es_client
 
 
+async def _add_missing_columns() -> None:
+    """Ensure every column declared on a model exists in the live database.
+
+    ``Base.metadata.create_all`` only creates tables that are missing; it does not
+    add new columns to tables that already exist. This routine inspects the
+    database schema, compares it against ``Base.metadata`` and issues
+    ``ALTER TABLE ... ADD COLUMN IF NOT EXISTS`` statements for the missing ones
+    so the application stays in sync with model definitions across redeployments.
+    """
+
+    def _sync_add_missing_columns(sync_conn) -> None:
+        inspector = sa_inspect(sync_conn)
+        for table_name, table in Base.metadata.tables.items():
+            if not inspector.has_table(table_name):
+                continue
+            existing = {c["name"] for c in inspector.get_columns(table_name)}
+            for column in table.columns:
+                if column.name in existing:
+                    continue
+                col_type = column.type.compile(dialect=sync_conn.dialect)
+                nullable = "NULL" if column.nullable else "NOT NULL"
+                server_default = ""
+                if column.server_default is not None and hasattr(
+                    column.server_default, "arg"
+                ):
+                    arg = column.server_default.arg
+                    if not isinstance(arg, str) or not arg.strip().startswith(":"):
+                        server_default = f" DEFAULT {arg}"
+                quoted_name = f'"{column.name}"'
+                stmt = (
+                    f'ALTER TABLE "{table_name}" '
+                    f"ADD COLUMN IF NOT EXISTS {quoted_name} {col_type}{server_default} {nullable}"
+                )
+                logger.info(
+                    "Schema sync: adding missing column %s.%s", table_name, column.name
+                )
+                sync_conn.execute(text(stmt))
+
+    async with engine.begin() as conn:
+        await conn.run_sync(_sync_add_missing_columns)
+
+
+async def _run_alembic_upgrade() -> None:
+    """Apply any pending Alembic migrations at startup.
+
+    Wrapped in its own helper so it can be called from ``create_db_and_tables``
+    without leaking the Alembic dependency into the rest of the module.
+    """
+    try:
+        from alembic import command
+        from alembic.config import Config as AlembicConfig
+
+        cfg = AlembicConfig("alembic.ini")
+        cfg.set_main_option("script_location", "migrations")
+        cfg.set_main_option("sqlalchemy.url", settings.database_url_sync)
+
+        loop = asyncio.get_event_loop()
+        await loop.run_in_executor(None, command.upgrade, cfg, "head")
+        logger.info("Alembic migrations applied successfully")
+    except Exception as exc:  # pragma: no cover - defensive guard
+        # Migrations are best-effort: the programmatic column check below will
+        # cover the most common case (new columns on existing tables) so the
+        # app can still boot even if Alembic cannot be invoked (e.g. when the
+        # backend is started outside the project root).
+        logger.warning("Alembic upgrade skipped: %s", exc)
+
+
 async def create_db_and_tables():
     """Initialize databases and create tables"""
     global mongodb_client, mongodb_db, redis_client, es_client
-    
+
     try:
-        # Create PostgreSQL tables
+        # Apply any pending Alembic migrations first so the schema is always
+        # aligned with ``migrations/versions``. This is the canonical way to
+        # update the database, but it is followed by a defensive column check
+        # (see ``_add_missing_columns``) in case Alembic cannot run for any
+        # reason (e.g. running the app from outside the project root).
+        await _run_alembic_upgrade()
+
+        # Create PostgreSQL tables (only creates missing tables, not missing
+        # columns on existing ones).
         async with engine.begin() as conn:
             try:
                 await conn.run_sync(Base.metadata.create_all)
@@ -82,16 +158,25 @@ async def create_db_and_tables():
                 # Ignore duplicate enum type creation errors when the database
                 # already contains the type and the rest of the schema is present.
                 if "pg_type_typname_nsp_index" in str(ie.orig):
-                    print("⚠️ SQLAlchemy enum type already exists; continuing database initialization.")
+                    print(
+                        "⚠️ SQLAlchemy enum type already exists; continuing database initialization."
+                    )
                 else:
                     raise
+
+        # Ensure every column declared on a model also exists in the database.
+        # This is the safety net that resolves the ``column users.cover_url
+        # does not exist`` error raised when a new column is added to a model
+        # but the table was created by an older migration.
+        await _add_missing_columns()
 
         # Ensure the default administrator account exists.
         # Kept after SQL table creation and before external services so the admin
         # account is available even if MongoDB/Redis/Elasticsearch are offline.
         from src.services.admin_seed import ensure_default_admin_user
+
         await ensure_default_admin_user()
-        
+
         # Initialize MongoDB if enabled
         if settings.MONGODB_ENABLED and settings.MONGODB_URL:
             try:
@@ -104,16 +189,16 @@ async def create_db_and_tables():
                 mongodb_client = None
                 mongodb_db = None
         else:
-            print("⚠️ MongoDB is disabled or no URL configured; skipping MongoDB initialization.")
+            print(
+                "⚠️ MongoDB is disabled or no URL configured; skipping MongoDB initialization."
+            )
 
         # Initialize Redis
         if settings.REDIS_URL:
             redis_client = aioredis.from_url(
-                settings.REDIS_URL,
-                encoding="utf-8",
-                decode_responses=True
+                settings.REDIS_URL, encoding="utf-8", decode_responses=True
             )
-            
+
             # Test Redis connection
             await redis_client.ping()
             print("✅ Redis connected successfully")
@@ -124,10 +209,9 @@ async def create_db_and_tables():
         if settings.ELASTICSEARCH_ENABLED and settings.ELASTICSEARCH_URL:
             try:
                 es_client = AsyncElasticsearch(
-                    [settings.ELASTICSEARCH_URL],
-                    verify_certs=False
+                    [settings.ELASTICSEARCH_URL], verify_certs=False
                 )
-                
+
                 if await es_client.ping():
                     print("✅ Elasticsearch connected successfully")
                 else:
@@ -137,10 +221,12 @@ async def create_db_and_tables():
                 print(f"⚠️ Elasticsearch initialization skipped or failed: {es_exc}")
                 es_client = None
         else:
-            print("⚠️ Elasticsearch is disabled or no URL configured; skipping Elasticsearch initialization.")
+            print(
+                "⚠️ Elasticsearch is disabled or no URL configured; skipping Elasticsearch initialization."
+            )
 
         print("✅ All databases initialized successfully")
-        
+
     except Exception as e:
         print(f"❌ Database initialization error: {e}")
         raise
@@ -149,27 +235,27 @@ async def create_db_and_tables():
 async def close_db_connections():
     """Close all database connections"""
     global mongodb_client, redis_client, es_client
-    
+
     try:
         # Close PostgreSQL engine
         await engine.dispose()
         print("✅ PostgreSQL connection closed")
-        
+
         # Close MongoDB
         if mongodb_client:
             mongodb_client.close()
             print("✅ MongoDB connection closed")
-        
+
         # Close Redis
         if redis_client:
             await redis_client.close()
             print("✅ Redis connection closed")
-        
+
         # Close Elasticsearch
         if es_client:
             await es_client.close()
             print("✅ Elasticsearch connection closed")
-            
+
     except Exception as e:
         print(f"❌ Error closing database connections: {e}")
 
@@ -179,7 +265,7 @@ async def check_postgres_health() -> bool:
     """Check PostgreSQL health"""
     try:
         async with async_session_maker() as session:
-            result = await session.execute("SELECT 1")
+            result = await session.execute(text("SELECT 1"))
             return result.scalar() == 1
     except Exception:
         return False
@@ -188,8 +274,8 @@ async def check_postgres_health() -> bool:
 async def check_mongodb_health() -> bool:
     """Check MongoDB health"""
     try:
-        if mongodb_db:
-            await mongodb_db.command("ping")
+        if mongodb_client is not None:
+            await mongodb_client.admin.command("ping")
             return True
         return False
     except Exception:
@@ -222,5 +308,5 @@ async def get_all_health_status() -> dict:
         "postgresql": await check_postgres_health(),
         "mongodb": await check_mongodb_health(),
         "redis": await check_redis_health(),
-        "elasticsearch": await check_elasticsearch_health()
+        "elasticsearch": await check_elasticsearch_health(),
     }

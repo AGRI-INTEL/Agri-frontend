@@ -14,6 +14,7 @@ from config.config import get_settings
 from config.database import get_db
 from src.services.auth import AuthService, get_current_user, get_current_active_user
 from src.services.email import send_verification_email, send_password_reset_email
+from src.services.session import session_service
 from api.schemas.auth import (
     UserCreate, UserLogin, UserLoginResponse, UserResponse,
     Token, PasswordReset, PasswordResetConfirm, PasswordChange,
@@ -148,6 +149,20 @@ async def revoke_session(
         )
     await session_service.revoke_session(session_id)
     return {"message": "Session revoked successfully"}
+
+
+@router.post("/sessions/revoke-all-others")
+async def revoke_all_other_sessions(
+    request: Request,
+    current_user: User = Depends(get_current_active_user)
+):
+    """Revoke all sessions for the current user except the current one"""
+    user_agent = request.headers.get("user-agent", "unknown")
+    ip_address = request.client.host if request.client else "0.0.0.0"
+    current_session_id = f"session:{current_user.id}:{user_agent}:{ip_address}"
+    
+    await session_service.revoke_all_other_sessions(str(current_user.id), current_session_id)
+    return {"message": "All other sessions revoked successfully"}
 
 
 @router.post("/refresh", response_model=Token)
@@ -447,11 +462,95 @@ async def check_username_availability(
 
 import secrets
 import base64
-from api.schemas.auth import TwoFactorSetup, TwoFactorVerify, APIKeyCreate, APIKey
+import os
+import shutil
+from fastapi import UploadFile, File
+from api.schemas.auth import TwoFactorSetup, TwoFactorVerify, APIKeyCreate, APIKey, UserPreferences
 
 # In-memory 2FA secrets (à persister en DB dans une vraie implémentation)
 _2fa_secrets: dict = {}
 _api_keys: dict = {}
+
+
+@router.post("/avatar", response_model=UserResponse)
+async def upload_avatar(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Upload user avatar"""
+    os.makedirs(os.path.join(settings.UPLOAD_DIR, "avatars"), exist_ok=True)
+    file_path = os.path.join(settings.UPLOAD_DIR, "avatars", f"{current_user.id}_{file.filename}")
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    
+    current_user.avatar_url = f"/static/avatars/{current_user.id}_{file.filename}"
+    await db.commit()
+    await db.refresh(current_user)
+    return serialize_user(current_user)
+
+
+@router.post("/cover", response_model=UserResponse)
+async def upload_cover(
+    file: UploadFile = File(...),
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Upload user cover image"""
+    os.makedirs(os.path.join(settings.UPLOAD_DIR, "covers"), exist_ok=True)
+    file_path = os.path.join(settings.UPLOAD_DIR, "covers", f"{current_user.id}_{file.filename}")
+    
+    with open(file_path, "wb") as buffer:
+        shutil.copyfileobj(file.file, buffer)
+    
+    current_user.cover_url = f"/static/covers/{current_user.id}_{file.filename}"
+    await db.commit()
+    await db.refresh(current_user)
+    return serialize_user(current_user)
+
+
+@router.get("/preferences", response_model=UserPreferences)
+async def get_user_preferences(
+    current_user: User = Depends(get_current_active_user)
+):
+    """Get user preferences"""
+    return UserPreferences(
+        language=current_user.language,
+        timezone=current_user.timezone,
+        theme=current_user.theme
+    )
+
+
+@router.put("/preferences", response_model=UserPreferences)
+async def update_user_preferences(
+    preferences: UserPreferences,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Update user preferences"""
+    current_user.language = preferences.language
+    current_user.timezone = preferences.timezone
+    current_user.theme = preferences.theme
+    # Note: Other fields in UserPreferences might need a JSON column in DB if we want to persist them
+    await db.commit()
+    return preferences
+
+
+@router.post("/delete-account")
+async def delete_account(
+    data: dict,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Delete user account"""
+    password = data.get("password")
+    if not password or not AuthService.verify_password(password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Mot de passe incorrect")
+    
+    await db.delete(current_user)
+    await db.commit()
+    return {"message": "Compte supprimé avec succès"}
 
 
 @router.post("/2fa/enable", response_model=TwoFactorSetup)

@@ -41,6 +41,7 @@ class User(Base):
     country = Column(String(100), nullable=True)
     bio = Column(Text, nullable=True)
     avatar_url = Column(String(500), nullable=True)
+    cover_url = Column(String(500), nullable=True)
     
     # Preferences
     language = Column(String(10), default="fr", nullable=False)

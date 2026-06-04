@@ -115,7 +115,7 @@ services:
       elasticsearch:
         condition: service_healthy
     healthcheck:
-      test: ["CMD", "curl", "-f", "http://localhost:8000/api/v1/health"]
+      test: ["CMD", "python", "-c", "import urllib.request,sys; r=urllib.request.urlopen('http://localhost:8000/api/v1/health/health', timeout=5); sys.exit(0 if r.status==200 else 1)"]
       interval: 30s
       timeout: 10s
       retries: 3

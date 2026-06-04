@@ -5,6 +5,7 @@ Chatbot API endpoints
 from fastapi import APIRouter, Depends, HTTPException
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
+from datetime import datetime
 
 from src.services.auth import get_current_verified_user
 from src.services.chatbot import process_chat_message, get_chat_suggestions, _get_chatbot
@@ -25,7 +26,7 @@ class ChatResponse(BaseModel):
     type: str
     message: str
     sql_query: Optional[str] = None
-    data: Optional[List[Dict[str, Any]]] = None
+    data: Optional[list[dict[str, Any]]] = None
     provider: Optional[str] = None
     timestamp: str
     error: bool
@@ -39,6 +40,68 @@ class ChatFeedback(BaseModel):
     message_id: str
     rating: int  # 1 = 👍, -1 = 👎
     comment: Optional[str] = None
+
+
+class Conversation(BaseModel):
+    id: str
+    title: str
+    updated_at: str
+
+
+class Message(BaseModel):
+    id: str
+    role: str
+    content: str
+    timestamp: str
+
+
+@router.get("/conversations", response_model=List[Conversation])
+async def list_conversations(
+    current_user: User = Depends(get_current_verified_user)
+):
+    """Liste les conversations du chatbot"""
+    # For now, return a single default conversation if history exists
+    user_id = str(current_user.id)
+    if user_id in _chat_histories:
+        return [Conversation(id="default", title="Conversation actuelle", updated_at=datetime.utcnow().isoformat())]
+    return []
+
+
+@router.post("/conversations", response_model=Conversation)
+async def create_conversation(
+    current_user: User = Depends(get_current_verified_user)
+):
+    """Crée une nouvelle conversation"""
+    return Conversation(id="default", title="Nouvelle conversation", updated_at=datetime.utcnow().isoformat())
+
+
+@router.get("/conversations/{conversation_id}", response_model=List[Message])
+async def get_conversation_messages(
+    conversation_id: str,
+    current_user: User = Depends(get_current_verified_user)
+):
+    """Récupère les messages d'une conversation"""
+    user_id = str(current_user.id)
+    history = _chat_histories.get(user_id, [])
+    messages = []
+    for i, h in enumerate(history):
+        messages.append(Message(
+            id=f"msg-{i}",
+            role=h["role"],
+            content=h["content"],
+            timestamp=str(h["timestamp"])
+        ))
+    return messages
+
+
+@router.post("/conversations/{conversation_id}/messages", response_model=ChatResponse)
+async def send_conversation_message(
+    conversation_id: str,
+    chat_message: ChatMessage,
+    current_user: User = Depends(get_current_verified_user)
+):
+    """Envoie un message dans une conversation spécifique"""
+    return await chat_with_agribot(chat_message, current_user)
 
 
 @router.post("/chat", response_model=ChatResponse)

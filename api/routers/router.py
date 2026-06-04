@@ -4,48 +4,61 @@ Main API v1 router
 
 from fastapi import APIRouter
 
-from api.routers import (
-    auth, users, dashboard, analytics, predictions,
-    alerts, chatbot, community, files, geolocation,
-    weather, economics, countries, notifications, admin,
-)
+from api.routers.auth import router as auth_router
+from api.routers.users import router as users_router
+from api.routers.dashboard import router as dashboard_router
+from api.routers.analytics import router as analytics_router
+from api.routers.predictions import router as predictions_router
+from api.routers.alerts import router as alerts_router
+from api.routers.chatbot import router as chatbot_router
+from api.routers.community import router as community_router
+from api.routers.files import router as files_router
+from api.routers.geolocation import router as geolocation_router
+from api.routers.weather import router as weather_router
+from api.routers.economics import router as economics_router
+from api.routers.countries import router as countries_router
+from api.routers.notifications import router as notifications_router
+from api.routers.admin import router as admin_router
+from api.routers.actors import router as actors_router
+from api.routers.indicators import router as indicators_router
 from api.routers.health import health_router
 from api.routers.websocket import websocket_router
-from api.routers import mocks
 
 api_v1_router = APIRouter()
 
 # ── Core ───────────────────────────────────────────────────────────────────────
-api_v1_router.include_router(auth.router,          prefix="/auth",          tags=["Authentication"])
-api_v1_router.include_router(users.router,         prefix="/users",         tags=["Users"])
+api_v1_router.include_router(auth_router,          prefix="/auth",          tags=["Authentication"])
+api_v1_router.include_router(users_router,         prefix="/users",         tags=["Users"])
 
 # ── Data & Analytics ──────────────────────────────────────────────────────────
-api_v1_router.include_router(dashboard.router,     prefix="/dashboard",     tags=["Dashboard"])
-api_v1_router.include_router(analytics.router,     prefix="/analytics",     tags=["Analytics"])
-api_v1_router.include_router(weather.router,       prefix="/weather",       tags=["Météo"])
-api_v1_router.include_router(economics.router,     prefix="/economics",     tags=["Économie"])
-api_v1_router.include_router(countries.router,     prefix="/reference",     tags=["Référentiel (Pays & Cultures)"])
+api_v1_router.include_router(dashboard_router,     prefix="/dashboard",     tags=["Dashboard"])
+api_v1_router.include_router(analytics_router,     prefix="/analytics",     tags=["Analytics"])
+api_v1_router.include_router(indicators_router,    prefix="/indicators",    tags=["Indicateurs Agricoles"])
+api_v1_router.include_router(weather_router,       prefix="/weather",       tags=["Météo"])
+api_v1_router.include_router(economics_router,     prefix="/economics",     tags=["Économie"])
+api_v1_router.include_router(countries_router,     prefix="/reference",     tags=["Référentiel (Pays & Cultures)"])
 
 # ── AI & Predictions ──────────────────────────────────────────────────────────
-api_v1_router.include_router(predictions.router,   prefix="/predictions",   tags=["AI & Prédictions"])
-api_v1_router.include_router(chatbot.router,       prefix="/chatbot",       tags=["AI Chatbot"])
+api_v1_router.include_router(predictions_router,   prefix="/predictions",   tags=["AI & Prédictions"])
+api_v1_router.include_router(chatbot_router,       prefix="/chatbot",       tags=["AI Chatbot"])
 
 # ── Alerts & Notifications ────────────────────────────────────────────────────
-api_v1_router.include_router(alerts.router,        prefix="/alerts",        tags=["Alertes"])
-api_v1_router.include_router(notifications.router, prefix="/notifications", tags=["Notifications"])
+api_v1_router.include_router(alerts_router,        prefix="/alerts",        tags=["Alertes"])
+api_v1_router.include_router(notifications_router, prefix="/notifications", tags=["Notifications"])
 
 # ── Community & Files ─────────────────────────────────────────────────────────
-api_v1_router.include_router(community.router,     prefix="/community",     tags=["Communautés & Groupes"])
-api_v1_router.include_router(files.router,         prefix="/files",         tags=["Gestion des Fichiers"])
+api_v1_router.include_router(community_router,     prefix="/community",     tags=["Communautés & Groupes"])
+api_v1_router.include_router(files_router,         prefix="/files",         tags=["Gestion des Fichiers"])
 
 # ── Geolocation ───────────────────────────────────────────────────────────────
-api_v1_router.include_router(geolocation.router,   prefix="/geolocation",   tags=["Géolocalisation"])
+api_v1_router.include_router(geolocation_router,   prefix="/geolocation",   tags=["Géolocalisation"])
+
+# ── Actors ────────────────────────────────────────────────────────────────────
+api_v1_router.include_router(actors_router,        prefix="/actors",        tags=["Acteurs Agricoles"])
 
 # ── Admin ─────────────────────────────────────────────────────────────────────
-api_v1_router.include_router(admin.router,         prefix="/admin",         tags=["Administration"])
+api_v1_router.include_router(admin_router,         prefix="/admin",         tags=["Administration"])
 
 # ── Infrastructure ────────────────────────────────────────────────────────────
-api_v1_router.include_router(health_router,                                  tags=["Health"])
+api_v1_router.include_router(health_router,        prefix="/health",        tags=["Health"])
 api_v1_router.include_router(websocket_router,                               tags=["WebSocket"])
-# Mock development endpoints (keeps frontend working when full APIs are not implemented)
-api_v1_router.include_router(mocks.router)

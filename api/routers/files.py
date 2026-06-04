@@ -4,6 +4,7 @@ API endpoints pour la gestion des fichiers
 
 from typing import List, Optional
 from uuid import UUID
+from datetime import datetime, timedelta
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -155,6 +156,55 @@ async def search_files(
         per_page=result['per_page'],
         pages=result['pages']
     )
+
+
+@router.get("/files/recent", response_model=List[FileResponse])
+async def get_recent_files(
+    limit: int = Query(10, ge=1, le=50),
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Récupérer les fichiers récents"""
+    search_params = FileSearchParams()
+    result = await file_service.search_files(search_params, str(current_user.id), 1, limit, db)
+    return result['files']
+
+
+@router.post("/files/bulk-delete")
+async def bulk_delete_files(
+    data: dict,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Suppression groupée de fichiers"""
+    ids = data.get("ids", [])
+    if not ids:
+        raise HTTPException(status_code=400, detail="Aucun ID fourni")
+    
+    deleted_count = 0
+    for file_id in ids:
+        if await file_service.delete_file(file_id, str(current_user.id), db):
+            deleted_count += 1
+            
+    return {"message": f"{deleted_count} fichiers supprimés", "count": deleted_count}
+
+
+@router.post("/files/{file_id}/share")
+async def share_file(
+    file_id: str,
+    data: dict,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Partager un fichier (génère un lien ou une permission)"""
+    # Simple implementation: return a mock share URL for now
+    # In a real app, this would create a entry in a FilePermission table
+    import secrets
+    share_token = secrets.token_urlsafe(16)
+    return {
+        "share_url": f"{settings.FRONTEND_URL}/shared/{share_token}",
+        "expires_at": (datetime.utcnow() + timedelta(days=7)).isoformat()
+    }
 
 
 # Routes pour les dossiers

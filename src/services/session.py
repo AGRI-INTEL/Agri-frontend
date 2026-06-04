@@ -76,4 +76,18 @@ class SessionService:
             print(f"⚠️  Failed to revoke session: {e}")
             return False
 
+    async def revoke_all_other_sessions(self, user_id: str, current_session_id: Optional[str] = None) -> bool:
+        """Revoke all sessions for a user, except for the current session if provided."""
+        if not await self._ensure_connection():
+            return False
+        try:
+            session_keys = await self.redis_client.keys(f"session:{user_id}:*")
+            keys_to_delete = [key for key in session_keys if key != current_session_id]
+            if keys_to_delete:
+                await self.redis_client.delete(*keys_to_delete)
+            return True
+        except Exception as e:
+            print(f"⚠️  Failed to revoke other sessions: {e}")
+            return False
+
 session_service = SessionService()

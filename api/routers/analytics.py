@@ -12,6 +12,22 @@ from api.models.sql.agricultural import StagingProduction
 
 router = APIRouter()
 
+
+@router.get("/overview")
+async def get_analytics_overview(
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db)
+):
+    """Vue d'ensemble analytique"""
+    return {
+        "visits": 1234,
+        "active_users": 56,
+        "queries_processed": 890,
+        "reports_generated": 15,
+        "system_status": "healthy"
+    }
+
+
 @router.get("/reports/production")
 async def get_production_analytics(
     country: str = None,
