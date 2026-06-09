@@ -11,36 +11,36 @@ from pydantic_settings import BaseSettings, SettingsConfigDict
 
 class Settings(BaseSettings):
     """Application settings"""
-    
+
     model_config = SettingsConfigDict(
-        env_file=".env",
-        env_file_encoding="utf-8",
-        case_sensitive=False
+        env_file=".env", env_file_encoding="utf-8", case_sensitive=False
     )
-    
+
     # Project info
     PROJECT_NAME: str = "AgriIntel360"
     VERSION: str = "1.0.0"
     DESCRIPTION: str = "Plateforme Intelligente de Décision Agricole"
     API_V1_STR: str = "/api/v1"
-    
+
     # Environment
     ENVIRONMENT: str = Field(default="development")
     DEBUG: bool = Field(default=True)
-    
+
+    @validator("DEBUG", pre=True)
+    def validate_debug(cls, v: Any, values: Dict[str, Any]) -> bool:
+        if isinstance(v, str):
+            return v.lower() in ("true", "1", "yes")
+        return bool(v)
+
     # Database URLs
     DATABASE_URL: str = Field(
-        default="postgresql://postgres:stanislas@localhost:5432/agriintel360"
+        default="postgresql://postgres:CHANGE_ME@localhost:5432/agriintel360"
     )
     MONGODB_URL: str = Field(
-        default="mongodb://admin:stanislas@localhost:27017/agriintel360"
+        default="mongodb://admin:CHANGE_ME@localhost:27017/agriintel360"
     )
-    REDIS_URL: str = Field(
-        default="redis://:stanislas@localhost:6379"
-    )
-    ELASTICSEARCH_URL: str = Field(
-        default="http://localhost:9200"
-    )
+    REDIS_URL: str = Field(default="redis://:CHANGE_ME@localhost:6379")
+    ELASTICSEARCH_URL: str = Field(default="http://localhost:9200")
     MONGODB_ENABLED: bool = True
     ELASTICSEARCH_ENABLED: bool = True
     CLOUDINARY_ENABLED: bool = False
@@ -48,35 +48,31 @@ class Settings(BaseSettings):
     CLOUDINARY_API_KEY: Optional[str] = None
     CLOUDINARY_API_SECRET: Optional[str] = None
     CLOUDINARY_UPLOAD_FOLDER: str = "agriintel"
-    
+
     # JWT Settings
-    JWT_SECRET_KEY: str = Field(
-        default="a_very_secret_key_that_should_be_changed"
-    )
+    JWT_SECRET_KEY: str = Field(default="CHANGE_ME_openssl_rand_hex_64")
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
-    
+
     # Security
     BCRYPT_ROUNDS: int = 12
-    ALLOWED_HOSTS: List[str] = ["*"]
+    ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1"]
 
     # Default administrator account
     DEFAULT_ADMIN_EMAIL: str = "admin@agri.com"
-    DEFAULT_ADMIN_PASSWORD: str = "admin@2006"
+    DEFAULT_ADMIN_PASSWORD: str = Field(default="CHANGE_ME")
     DEFAULT_ADMIN_USERNAME: str = "admin"
     DEFAULT_ADMIN_FULL_NAME: str = "Administrateur AgriIntel360"
-    
+
     # CORS
     BACKEND_CORS_ORIGINS: List[str] = Field(
         default=[
             "http://localhost:3000",
-            "http://127.0.0.1:3000",
             "http://localhost:8000",
-            "http://localhost:5173",
         ]
     )
-    
+
     @validator("BACKEND_CORS_ORIGINS", pre=True)
     def assemble_cors_origins(cls, v: Any) -> List[str]:
         if isinstance(v, str) and not v.startswith("["):
@@ -87,16 +83,21 @@ class Settings(BaseSettings):
             # Handle string that starts with '[' (likely JSON-like format)
             return [v]
         raise ValueError(v)
-    
+
     # File upload
     MAX_FILE_SIZE_MB: int = 100
     UPLOAD_DIR: str = "uploads"
     ALLOWED_FILE_TYPES: List[str] = [
-        "image/jpeg", "image/png", "image/gif", "image/webp",
-        "application/pdf", "text/csv", "application/vnd.ms-excel",
-        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+        "image/jpeg",
+        "image/png",
+        "image/gif",
+        "image/webp",
+        "application/pdf",
+        "text/csv",
+        "application/vnd.ms-excel",
+        "application/vnd.openxmlformats-officedocument.spreadsheetml.sheet",
     ]
-    
+
     # External API Keys
     OPENWEATHER_API_KEY: Optional[str] = None
     FAO_API_KEY: Optional[str] = None
@@ -106,7 +107,9 @@ class Settings(BaseSettings):
     # OAuth
     GOOGLE_CLIENT_ID: Optional[str] = None
     GOOGLE_CLIENT_SECRET: Optional[str] = None
-    
+    MICROSOFT_CLIENT_ID: Optional[str] = None
+    MICROSOFT_CLIENT_SECRET: Optional[str] = None
+
     # AI/ML Keys
     OPENAI_API_KEY: Optional[str] = None
     HUGGINGFACE_API_KEY: Optional[str] = None
@@ -119,7 +122,7 @@ class Settings(BaseSettings):
     DEEPSEEK_MODEL: str = "deepseek/deepseek-chat"
     DEEPSEEK_API_KEY: Optional[str] = None
     DEFAULT_LLM_PROVIDER: str = "kimi"  # "kimi" | "deepseek" | "openai"
-    
+
     # Frontend URL
     FRONTEND_URL: str = Field(default="http://localhost:3000")
 
@@ -138,7 +141,7 @@ class Settings(BaseSettings):
     SMTP_USERNAME: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
     SMTP_TLS: bool = True
-    
+
     # SMS/Notifications
     TWILIO_ACCOUNT_SID: Optional[str] = None
     TWILIO_AUTH_TOKEN: Optional[str] = None
@@ -146,40 +149,40 @@ class Settings(BaseSettings):
 
     # Firebase Cloud Messaging (push notifications)
     FCM_SERVER_KEY: Optional[str] = None
-    
+
     # Cache TTL (seconds)
     CACHE_TTL_SHORT: int = 300  # 5 minutes
     CACHE_TTL_MEDIUM: int = 3600  # 1 hour
     CACHE_TTL_LONG: int = 86400  # 24 hours
-    
+
     # Logging
     LOG_LEVEL: str = "INFO"
     LOG_FILE: str = "logs/agriintel360.log"
-    
+
     # Monitoring
     SENTRY_DSN: Optional[str] = None
     PROMETHEUS_ENABLED: bool = True
-    
+
     # Pagination
     DEFAULT_PAGE_SIZE: int = 20
     MAX_PAGE_SIZE: int = 100
-    
+
     # Rate limiting
     RATE_LIMIT_PER_MINUTE: int = 60
-    
+
     # ML Model settings
     ML_MODEL_PATH: str = "ml-models"
     MODEL_UPDATE_INTERVAL_HOURS: int = 24
-    
+
     # Data processing
     DATA_RETENTION_DAYS: int = 365 * 5  # 5 years
     BATCH_SIZE: int = 1000
-    
+
     @property
     def database_url_async(self) -> str:
         """Get async database URL"""
         return self.DATABASE_URL.replace("postgresql://", "postgresql+asyncpg://")
-    
+
     @property
     def database_url_sync(self) -> str:
         """Get sync database URL for Alembic"""
@@ -189,12 +192,12 @@ class Settings(BaseSettings):
     def is_production(self) -> bool:
         """Check if running in production"""
         return self.ENVIRONMENT.lower() == "production"
-    
+
     @property
     def is_development(self) -> bool:
         """Check if running in development"""
         return self.ENVIRONMENT.lower() == "development"
-    
+
     def get_external_api_config(self) -> Dict[str, Optional[str]]:
         """Get external API configuration"""
         return {
@@ -203,7 +206,7 @@ class Settings(BaseSettings):
             "world_bank": self.WORLD_BANK_API_KEY,
             "mapbox": self.MAPBOX_ACCESS_TOKEN,
         }
-    
+
     def get_ai_config(self) -> Dict[str, Optional[str]]:
         """Get AI/ML configuration"""
         return {

@@ -694,7 +694,49 @@ async def delete_api_key(
     return {"message": "Clé API révoquée"}
 
 
-# ── OAuth Google (stub) ────────────────────────────────────────────────────────
+# ── OAuth helpers ──────────────────────────────────────────────────────────────
+
+def _build_backend_url() -> str:
+    """Build the backend base URL from the request context."""
+    return "http://localhost:8000"
+
+
+async def _oauth_login_or_create(db: AsyncSession, email: str, user_info: dict, provider: str) -> User:
+    """Find existing user or create one from OAuth provider data."""
+    user = await AuthService.get_user_by_email(db, email)
+    if not user:
+        import re as _re
+        base_username = _re.sub(r"[^a-zA-Z0-9_]", "_", email.split("@")[0])[:40]
+        username = base_username
+        suffix = 1
+        while await AuthService.get_user_by_username(db, username):
+            username = f"{base_username}_{suffix}"
+            suffix += 1
+
+        user = await AuthService.create_user(db, {
+            "email": email,
+            "username": username,
+            "full_name": user_info.get("name", username),
+            "password": secrets.token_urlsafe(32),
+            "is_verified": True,
+            "is_active": True,
+        })
+    return user
+
+
+def _oauth_token_response(user: User) -> dict:
+    token_data = {"sub": str(user.id), "username": user.username, "role": user.role.value}
+    access_token = AuthService.create_access_token(data=token_data)
+    refresh_token = AuthService.create_refresh_token(data=token_data)
+    return {
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "token_type": "bearer",
+        "user": serialize_user(user),
+    }
+
+
+# ── OAuth Google ──────────────────────────────────────────────────────────────
 
 @router.get("/oauth/google")
 async def oauth_google_redirect(request: Request):
@@ -710,7 +752,7 @@ async def oauth_google_redirect(request: Request):
                 "Ajouter GOOGLE_CLIENT_ID et GOOGLE_CLIENT_SECRET dans .env",
                 "Configurer le callback URL dans Google Console",
             ],
-            "callback_url": f"{_settings.FRONTEND_URL}/api/v1/auth/oauth/google/callback",
+            "callback_url": f"{_build_backend_url()}/api/v1/auth/oauth/google/callback",
         }
 
     try:
@@ -723,7 +765,7 @@ async def oauth_google_redirect(request: Request):
             server_metadata_url="https://accounts.google.com/.well-known/openid-configuration",
             client_kwargs={"scope": "openid email profile"},
         )
-        redirect_uri = f"{_settings.FRONTEND_URL}/api/v1/auth/oauth/google/callback"
+        redirect_uri = f"{_build_backend_url()}/api/v1/auth/oauth/google/callback"
         return await oauth.google.authorize_redirect(request, redirect_uri)
     except ImportError:
         return {"message": "authlib non installé. Exécutez: pip install authlib"}
@@ -758,34 +800,74 @@ async def oauth_google_callback(request: Request, db: AsyncSession = Depends(get
     if not email:
         raise HTTPException(status_code=400, detail="Email non fourni par Google")
 
-    # Trouver ou créer l'utilisateur
-    user = await AuthService.get_user_by_email(db, email)
-    if not user:
-        import re as _re
-        base_username = _re.sub(r"[^a-zA-Z0-9_]", "_", email.split("@")[0])[:40]
-        # Ensure uniqueness
-        username = base_username
-        suffix = 1
-        while await AuthService.get_user_by_username(db, username):
-            username = f"{base_username}_{suffix}"
-            suffix += 1
+    user = await _oauth_login_or_create(db, email, user_info, "google")
+    return _oauth_token_response(user)
 
-        user = await AuthService.create_user(db, {
-            "email": email,
-            "username": username,
-            "full_name": user_info.get("name", username),
-            "password": secrets.token_urlsafe(32),  # random password — OAuth only
-            "is_verified": True,
-            "is_active": True,
-        })
 
-    token_data = {"sub": str(user.id), "username": user.username, "role": user.role.value}
-    access_token = AuthService.create_access_token(data=token_data)
-    refresh_token = AuthService.create_refresh_token(data=token_data)
+# ── OAuth Microsoft ───────────────────────────────────────────────────────────
 
-    return {
-        "access_token": access_token,
-        "refresh_token": refresh_token,
-        "token_type": "bearer",
-        "user": serialize_user(user),
-    }
+@router.get("/oauth/microsoft")
+async def oauth_microsoft_redirect(request: Request):
+    """Redirige vers Microsoft pour l'authentification OAuth2"""
+    from config.config import get_settings as _gs
+    _settings = _gs()
+
+    microsoft_client_id = getattr(_settings, "MICROSOFT_CLIENT_ID", None)
+    if not microsoft_client_id:
+        return {
+            "message": "OAuth Microsoft non configuré",
+            "setup_required": [
+                "Ajouter MICROSOFT_CLIENT_ID et MICROSOFT_CLIENT_SECRET dans .env",
+                "Configurer le callback URL dans le portail Azure",
+            ],
+            "callback_url": f"{_build_backend_url()}/api/v1/auth/oauth/microsoft/callback",
+        }
+
+    try:
+        from authlib.integrations.starlette_client import OAuth
+        oauth = OAuth()
+        oauth.register(
+            name="microsoft",
+            client_id=microsoft_client_id,
+            client_secret=getattr(_settings, "MICROSOFT_CLIENT_SECRET", ""),
+            server_metadata_url="https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration",
+            client_kwargs={"scope": "openid email profile User.Read"},
+        )
+        redirect_uri = f"{_build_backend_url()}/api/v1/auth/oauth/microsoft/callback"
+        return await oauth.microsoft.authorize_redirect(request, redirect_uri)
+    except ImportError:
+        return {"message": "authlib non installé. Exécutez: pip install authlib"}
+
+
+@router.get("/oauth/microsoft/callback")
+async def oauth_microsoft_callback(request: Request, db: AsyncSession = Depends(get_db)):
+    """Callback OAuth Microsoft — échange le code contre un token AgriIntel360"""
+    from config.config import get_settings as _gs
+    _settings = _gs()
+
+    microsoft_client_id = getattr(_settings, "MICROSOFT_CLIENT_ID", None)
+    if not microsoft_client_id:
+        raise HTTPException(status_code=501, detail="OAuth Microsoft non configuré")
+
+    try:
+        from authlib.integrations.starlette_client import OAuth
+        oauth = OAuth()
+        oauth.register(
+            name="microsoft",
+            client_id=microsoft_client_id,
+            client_secret=getattr(_settings, "MICROSOFT_CLIENT_SECRET", ""),
+            server_metadata_url="https://login.microsoftonline.com/common/v2.0/.well-known/openid-configuration",
+            client_kwargs={"scope": "openid email profile User.Read"},
+        )
+        token = await oauth.microsoft.authorize_access_token(request)
+        user_info = token.get("userinfo") or await oauth.microsoft.userinfo(token=token)
+    except Exception as e:
+        raise HTTPException(status_code=400, detail=f"Erreur OAuth Microsoft: {e}")
+
+    email = user_info.get("email") or user_info.get("mail") or user_info.get("userPrincipalName")
+    if not email:
+        raise HTTPException(status_code=400, detail="Email non fourni par Microsoft")
+
+    name = user_info.get("name") or user_info.get("displayName") or email.split("@")[0]
+    user = await _oauth_login_or_create(db, email, {"name": name}, "microsoft")
+    return _oauth_token_response(user)
