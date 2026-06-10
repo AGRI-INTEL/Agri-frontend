@@ -232,6 +232,9 @@ def send_daily_digest(self):
         from api.models.sql.user import User
         from api.models.sql.agricultural import Alert
         from src.services.email import send_email
+        from config.config import get_settings
+
+        settings = get_settings()
 
         async def _send_digests():
             sent = 0
@@ -264,7 +267,7 @@ def send_daily_digest(self):
                     <ul>
                     {"".join(f"<li><b>{a.title}</b> — {a.severity}</li>" for a in alerts[:5])}
                     </ul>
-                    <p><a href="http://localhost:3000/alerts">Voir toutes les alertes</a></p>
+                    <p><a href="{settings.FRONTEND_URL}/alerts">Voir toutes les alertes</a></p>
                     """
                     await send_email([email], subject, body)
                     sent += 1

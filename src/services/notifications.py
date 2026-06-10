@@ -10,9 +10,7 @@ from typing import List, Dict, Any, Optional, Union
 from enum import Enum
 
 from fastapi import BackgroundTasks
-import smtplib
-from email.mime.text import MimeText
-from email.mime.multipart import MimeMultipart
+
 
 try:
     from twilio.rest import Client as TwilioClient
@@ -136,37 +134,41 @@ class NotificationService:
             await asyncio.gather(*tasks, return_exceptions=True)
     
     async def _send_email(self, user: User, alert: Dict[str, Any]):
-        """Envoie une notification par email"""
-        
-        if not self.smtp_host or not user.email:
+        if not user.email:
             return
-        
-        try:
-            # Création du message email
-            msg = MimeMultipart('alternative')
-            msg['Subject'] = f"🚨 AgriIntel360 - {alert['title']}"
-            msg['From'] = self.smtp_username
+
+        def _do_send():
+            import subprocess
+            from email.mime.multipart import MIMEMultipart
+            from email.mime.text import MIMEText
+
+            msg = MIMEMultipart('alternative')
+            msg['Subject'] = f"AgriIntel360 - {alert['title']}"
+            msg['From'] = self.smtp_username or self.settings.MAIL_FROM or "noreply@agriintel360.lsgrouptogo.com"
             msg['To'] = user.email
-            
-            # Template HTML pour l'email
+
             html_content = self._create_email_template(user, alert)
-            
-            # Ajout du contenu
-            html_part = MimeText(html_content, 'html', 'utf-8')
+            html_part = MIMEText(html_content, 'html', 'utf-8')
             msg.attach(html_part)
-            
-            # Envoi de l'email
-            with smtplib.SMTP(self.smtp_host, self.smtp_port) as server:
-                if self.settings.SMTP_TLS:
-                    server.starttls()
-                if self.smtp_username and self.smtp_password:
-                    server.login(self.smtp_username, self.smtp_password)
-                server.send_message(msg)
-            
-            print(f"✅ Email envoyé à {user.email}")
-            
+
+            proc = subprocess.run(
+                ["/usr/sbin/sendmail", "-t"],
+                input=msg.as_string(),
+                text=True,
+                capture_output=True,
+                timeout=15
+            )
+            if proc.returncode != 0:
+                raise RuntimeError(f"sendmail failed: {proc.stderr}")
+            return True
+
+        try:
+            import asyncio
+            loop = asyncio.get_event_loop()
+            await loop.run_in_executor(None, _do_send)
+            print(f"Email sent to {user.email}")
         except Exception as e:
-            print(f"❌ Erreur envoi email: {e}")
+            print(f"Email send error: {e}")
     
     async def _send_sms(self, user: User, alert: Dict[str, Any]):
         """Envoie une notification par SMS"""
@@ -329,7 +331,7 @@ class NotificationService:
                     
                     <!-- Action Button -->
                     <div style="text-align: center; margin: 30px 0;">
-                        <a href="http://localhost:3000/dashboard" 
+                        <a href="{self.settings.FRONTEND_URL}/dashboard" 
                            style="background-color: #22c55e; color: white; padding: 12px 24px; text-decoration: none; border-radius: 6px; font-weight: 500; display: inline-block;">
                             Voir le Tableau de Bord
                         </a>

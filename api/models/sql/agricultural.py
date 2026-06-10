@@ -8,7 +8,7 @@ from datetime import date
 from typing import Optional
 
 from sqlalchemy import (Boolean, Column, DateTime, Enum, Float, ForeignKey, Index, Integer,
-                       String, Table, UniqueConstraint, text)
+                       String, Table, UniqueConstraint)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -71,7 +71,6 @@ class StagingWeather(Base):
 
     __table_args__ = (
         Index('ix_weather_location_date', 'city', 'country', 'date'),
-        Index('ix_weather_coords', text('ll_to_earth(lat, lon)'), postgresql_using='gist'),
         {'comment': 'Données météorologiques avec support géospatial'}
     )
 

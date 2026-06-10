@@ -697,7 +697,11 @@ async def delete_api_key(
 # ── OAuth helpers ──────────────────────────────────────────────────────────────
 
 def _build_backend_url() -> str:
-    """Build the backend base URL from the request context."""
+    """Build the backend base URL from settings."""
+    from config.config import get_settings
+    env = get_settings().ENVIRONMENT
+    if env == "production":
+        return "https://agriintel360.lsgrouptogo.com/api"
     return "http://localhost:8000"
 
 
