@@ -2,7 +2,7 @@
 
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select
+from sqlalchemy import select, func
 
 from config.database import get_db
 from src.services.auth import get_current_active_user
@@ -12,28 +12,31 @@ from api.schemas.alert import AlertCreate, AlertResponse
 
 router = APIRouter()
 
+
 @router.get("/", response_model=list[AlertResponse])
 async def get_alerts(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
     skip: int = 0,
-    limit: int = 100
+    limit: int = 100,
 ):
     """Get user alerts"""
     result = await db.execute(
         select(Alert)
-        .where(Alert.user_id == current_user.id)
+        .where((Alert.user_id == current_user.id) | (Alert.user_id == None))
+        .order_by(Alert.created_at.desc())
         .offset(skip)
         .limit(limit)
     )
     alerts = result.scalars().all()
     return alerts
 
+
 @router.post("/", response_model=AlertResponse, status_code=status.HTTP_201_CREATED)
 async def create_alert(
     alert_data: AlertCreate,
     current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Create new alert"""
     alert = Alert(**alert_data.model_dump(), user_id=current_user.id)
@@ -46,26 +49,72 @@ async def create_alert(
 @router.get("/stats")
 async def get_alert_stats(
     current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
-    """Statistiques des alertes"""
+    """Statistiques des alertes depuis la base de données"""
+    total_q = await db.execute(select(func.count(Alert.id)))
+    total = total_q.scalar() or 0
+
+    unread_q = await db.execute(
+        select(func.count(Alert.id)).where(Alert.is_read == False)
+    )
+    unread = unread_q.scalar() or 0
+
+    severity_rows = await db.execute(
+        select(Alert.severity, func.count(Alert.id)).group_by(Alert.severity)
+    )
+    by_severity = {row[0]: row[1] for row in severity_rows.all()}
+
+    type_rows = await db.execute(
+        select(Alert.alert_type, func.count(Alert.id)).group_by(Alert.alert_type)
+    )
+    by_type = {row[0]: row[1] for row in type_rows.all()}
+
+    critical_q = await db.execute(
+        select(func.count(Alert.id)).where(
+            Alert.severity.in_(["critical", "emergency"])
+        )
+    )
+    critical_count = critical_q.scalar() or 0
+
     return {
-        "total": 10,
-        "unread": 3,
-        "by_severity": {"critical": 2, "warning": 5, "info": 3},
-        "by_type": {"weather": 4, "market": 3, "system": 3},
-        "critical_count": 2
+        "total": total,
+        "unread": unread,
+        "by_severity": by_severity,
+        "by_type": by_type,
+        "critical_count": critical_count,
     }
+
+
+@router.get("/{alert_id}", response_model=AlertResponse)
+async def get_alert(
+    alert_id: str,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Get single alert by ID"""
+    import uuid
+
+    try:
+        uid = uuid.UUID(alert_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Alerte non trouvée")
+    result = await db.execute(select(Alert).where(Alert.id == uid))
+    alert = result.scalar_one_or_none()
+    if not alert:
+        raise HTTPException(status_code=404, detail="Alerte non trouvée")
+    return alert
 
 
 @router.patch("/{alert_id}/read", response_model=AlertResponse)
 async def mark_alert_read(
     alert_id: str,
     current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Marquer une alerte comme lue"""
     import uuid
+
     result = await db.execute(select(Alert).where(Alert.id == uuid.UUID(alert_id)))
     alert = result.scalar_one_or_none()
     if not alert:
@@ -80,14 +129,13 @@ async def mark_alert_read(
 @router.post("/read-all")
 async def mark_all_alerts_read(
     current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Marquer toutes les alertes comme lues"""
     from sqlalchemy import update
+
     await db.execute(
-        update(Alert)
-        .where(Alert.user_id == current_user.id)
-        .values(is_read=True)
+        update(Alert).where(Alert.user_id == current_user.id).values(is_read=True)
     )
     await db.commit()
     return {"message": "Toutes les alertes ont été marquées comme lues"}
@@ -98,10 +146,11 @@ async def acknowledge_alert(
     alert_id: str,
     data: dict,
     current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Accuser réception d'une alerte"""
     import uuid
+
     result = await db.execute(select(Alert).where(Alert.id == uuid.UUID(alert_id)))
     alert = result.scalar_one_or_none()
     if not alert:
@@ -118,10 +167,11 @@ async def resolve_alert(
     alert_id: str,
     data: dict,
     current_user: User = Depends(get_current_active_user),
-    db: AsyncSession = Depends(get_db)
+    db: AsyncSession = Depends(get_db),
 ):
     """Résoudre une alerte"""
     import uuid
+
     result = await db.execute(select(Alert).where(Alert.id == uuid.UUID(alert_id)))
     alert = result.scalar_one_or_none()
     if not alert:

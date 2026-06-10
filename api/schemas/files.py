@@ -66,7 +66,7 @@ class FileListResponse(BaseModel):
 class FolderBase(BaseModel):
     name: str = Field(..., min_length=1, max_length=100)
     description: Optional[str] = None
-    color: Optional[str] = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')
+    color: Optional[str] = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
     is_shared: bool = False
 
 
@@ -77,7 +77,7 @@ class FolderCreate(FolderBase):
 class FolderUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=1, max_length=100)
     description: Optional[str] = None
-    color: Optional[str] = Field(None, pattern=r'^#[0-9A-Fa-f]{6}$')
+    color: Optional[str] = Field(None, pattern=r"^#[0-9A-Fa-f]{6}$")
     is_shared: Optional[bool] = None
 
 
@@ -99,6 +99,9 @@ class FolderResponse(FolderBase):
 class FolderTreeNode(FolderResponse):
     children: List["FolderTreeNode"] = []
     files: List[FileResponse] = []
+
+
+FolderTreeNode.model_rebuild()
 
 
 # Schémas pour les permissions

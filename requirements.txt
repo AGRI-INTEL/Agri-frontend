@@ -1,7 +1,7 @@
 # FastAPI and ASGI
-fastapi[all]==0.109.2
+fastapi[all]==0.136.3
 uvicorn[standard]==0.27.1
-starlette==0.36.3
+starlette>=0.36.3
 h11==0.14.0
 
 # Database drivers
@@ -65,7 +65,7 @@ celery==5.3.4
 flower==2.0.1
 
 # Validation & Serialization
-pydantic==2.8.2
+pydantic==2.13.4
 pydantic-settings==2.3.4
 
 # Configuration

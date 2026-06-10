@@ -27,38 +27,54 @@ from api.routers.websocket import websocket_router
 api_v1_router = APIRouter()
 
 # ── Core ───────────────────────────────────────────────────────────────────────
-api_v1_router.include_router(auth_router,          prefix="/auth",          tags=["Authentication"])
-api_v1_router.include_router(users_router,         prefix="/users",         tags=["Users"])
+api_v1_router.include_router(auth_router, prefix="/auth", tags=["Authentication"])
+api_v1_router.include_router(users_router, prefix="/users", tags=["Users"])
 
 # ── Data & Analytics ──────────────────────────────────────────────────────────
-api_v1_router.include_router(dashboard_router,     prefix="/dashboard",     tags=["Dashboard"])
-api_v1_router.include_router(analytics_router,     prefix="/analytics",     tags=["Analytics"])
-api_v1_router.include_router(indicators_router,    prefix="/indicators",    tags=["Indicateurs Agricoles"])
-api_v1_router.include_router(weather_router,       prefix="/weather",       tags=["Météo"])
-api_v1_router.include_router(economics_router,     prefix="/economics",     tags=["Économie"])
-api_v1_router.include_router(countries_router,     prefix="/reference",     tags=["Référentiel (Pays & Cultures)"])
+api_v1_router.include_router(dashboard_router, prefix="/dashboard", tags=["Dashboard"])
+api_v1_router.include_router(analytics_router, prefix="/analytics", tags=["Analytics"])
+api_v1_router.include_router(
+    indicators_router, prefix="/indicators", tags=["Indicateurs Agricoles"]
+)
+api_v1_router.include_router(weather_router, prefix="/weather", tags=["Météo"])
+api_v1_router.include_router(economics_router, prefix="/economics", tags=["Économie"])
+api_v1_router.include_router(
+    countries_router, prefix="/reference", tags=["Référentiel (Pays & Cultures)"]
+)
 
 # ── AI & Predictions ──────────────────────────────────────────────────────────
-api_v1_router.include_router(predictions_router,   prefix="/predictions",   tags=["AI & Prédictions"])
-api_v1_router.include_router(chatbot_router,       prefix="/chatbot",       tags=["AI Chatbot"])
+api_v1_router.include_router(
+    predictions_router, prefix="/predictions", tags=["AI & Prédictions"]
+)
+api_v1_router.include_router(chatbot_router, prefix="/chatbot", tags=["AI Chatbot"])
 
 # ── Alerts & Notifications ────────────────────────────────────────────────────
-api_v1_router.include_router(alerts_router,        prefix="/alerts",        tags=["Alertes"])
-api_v1_router.include_router(notifications_router, prefix="/notifications", tags=["Notifications"])
+api_v1_router.include_router(alerts_router, prefix="/alerts", tags=["Alertes"])
+api_v1_router.include_router(
+    notifications_router, prefix="/notifications", tags=["Notifications"]
+)
 
 # ── Community & Files ─────────────────────────────────────────────────────────
-api_v1_router.include_router(community_router,     prefix="/community",     tags=["Communautés & Groupes"])
-api_v1_router.include_router(files_router,         prefix="/files",         tags=["Gestion des Fichiers"])
+api_v1_router.include_router(
+    community_router, prefix="/community", tags=["Communautés & Groupes"]
+)
+api_v1_router.include_router(
+    files_router, prefix="/files", tags=["Gestion des Fichiers"]
+)
 
 # ── Geolocation ───────────────────────────────────────────────────────────────
-api_v1_router.include_router(geolocation_router,   prefix="/geolocation",   tags=["Géolocalisation"])
+api_v1_router.include_router(
+    geolocation_router, prefix="/geolocation", tags=["Géolocalisation"]
+)
 
 # ── Actors ────────────────────────────────────────────────────────────────────
-api_v1_router.include_router(actors_router,        prefix="/actors",        tags=["Acteurs Agricoles"])
+api_v1_router.include_router(
+    actors_router, prefix="/actors", tags=["Acteurs Agricoles"]
+)
 
 # ── Admin ─────────────────────────────────────────────────────────────────────
-api_v1_router.include_router(admin_router,         prefix="/admin",         tags=["Administration"])
+api_v1_router.include_router(admin_router, prefix="/admin", tags=["Administration"])
 
 # ── Infrastructure ────────────────────────────────────────────────────────────
-api_v1_router.include_router(health_router,        prefix="/health",        tags=["Health"])
-api_v1_router.include_router(websocket_router,                               tags=["WebSocket"])
+api_v1_router.include_router(health_router, prefix="/health", tags=["Health"])
+# WebSocket router is now mounted directly on the app in main.py to bypass HTTP middleware

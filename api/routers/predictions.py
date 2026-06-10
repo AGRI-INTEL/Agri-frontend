@@ -24,6 +24,7 @@ MODEL_SUPPORTS_IMAGES = False  # This is a tabular model, no image support
 
 # ─── Shared helpers ───────────────────────────────────────────────────────────
 
+
 def _generate_id() -> str:
     return uuid.uuid4().hex[:12]
 
@@ -40,15 +41,23 @@ def _build_result(
     now = datetime.utcnow().isoformat() + "Z"
     # Generate historical & prediction data points for charts
     historical = [
-        {"date": (datetime.utcnow() - timedelta(days=30 * (6 - i))).strftime("%Y-%m-%d"),
-         "value": round(value * (0.85 + random.random() * 0.3), 3)}
+        {
+            "date": (datetime.utcnow() - timedelta(days=30 * (6 - i))).strftime(
+                "%Y-%m-%d"
+            ),
+            "value": round(value * (0.85 + random.random() * 0.3), 3),
+        }
         for i in range(7)
     ]
     prediction = [
-        {"date": (datetime.utcnow() + timedelta(days=30 * (i + 1))).strftime("%Y-%m-%d"),
-         "value": round(value * (0.95 + random.random() * 0.1), 3),
-         "lower_bound": round(value * (0.85 + random.random() * 0.1), 3),
-         "upper_bound": round(value * (1.05 + random.random() * 0.1), 3)}
+        {
+            "date": (datetime.utcnow() + timedelta(days=30 * (i + 1))).strftime(
+                "%Y-%m-%d"
+            ),
+            "value": round(value * (0.95 + random.random() * 0.1), 3),
+            "lower_bound": round(value * (0.85 + random.random() * 0.1), 3),
+            "upper_bound": round(value * (1.05 + random.random() * 0.1), 3),
+        }
         for i in range(6)
     ]
     return {
@@ -62,11 +71,36 @@ def _build_result(
         "confidence_interval": [round(value * 0.85, 3), round(value * 1.15, 3)],
         "trend": trend,
         "trend_percent": round((random.random() - 0.4) * 20, 1),
-        "key_factors": factors or [
-            {"name": "Précipitations", "impact": 0.35, "direction": "positive", "description": "Pluviométrie favorable", "category": "climatic"},
-            {"name": "Température", "impact": 0.25, "direction": "positive", "description": "Température optimale", "category": "climatic"},
-            {"name": "Qualité du sol", "impact": 0.20, "direction": "positive", "description": "Sol fertile", "category": "agronomic"},
-            {"name": "Prix du marché", "impact": 0.15, "direction": "neutral", "description": "Marché stable", "category": "economic"},
+        "key_factors": factors
+        or [
+            {
+                "name": "Précipitations",
+                "impact": 0.35,
+                "direction": "positive",
+                "description": "Pluviométrie favorable",
+                "category": "climatic",
+            },
+            {
+                "name": "Température",
+                "impact": 0.25,
+                "direction": "positive",
+                "description": "Température optimale",
+                "category": "climatic",
+            },
+            {
+                "name": "Qualité du sol",
+                "impact": 0.20,
+                "direction": "positive",
+                "description": "Sol fertile",
+                "category": "agronomic",
+            },
+            {
+                "name": "Prix du marché",
+                "impact": 0.15,
+                "direction": "neutral",
+                "description": "Marché stable",
+                "category": "economic",
+            },
         ],
         "historical_data": historical,
         "prediction_data": prediction,
@@ -74,13 +108,19 @@ def _build_result(
         "model_version": "2.1.0",
         "model_accuracy": {"mae": 0.12, "rmse": 0.18, "mape": 8.5, "r2": 0.87},
         "training_period": {"from": "2018-01-01", "to": "2024-12-31"},
-        "feature_importance": {"temperature": 0.32, "precipitation": 0.28, "soil_quality": 0.22, "gdp": 0.18},
+        "feature_importance": {
+            "temperature": 0.32,
+            "precipitation": 0.28,
+            "soil_quality": 0.22,
+            "gdp": 0.18,
+        },
         "created_at": now,
         "computation_time_ms": random.randint(150, 800),
     }
 
 
 # ─── Request / Response schemas ───────────────────────────────────────────────
+
 
 class YieldPredictionRequest(BaseModel):
     crop: str = Field(default="Maïs", description="Culture")
@@ -135,28 +175,69 @@ class DiseasePredictionRequest(BaseModel):
 
 # ─── Endpoints ────────────────────────────────────────────────────────────────
 
+
 @router.post("/predict/yield")
 async def predict_yield(
     request: YieldPredictionRequest,
     current_user: User = Depends(get_current_verified_user),
 ):
     """Prediction de rendement agricole"""
-    base_yield = {"maïs": 2.5, "riz": 3.0, "mil": 1.2, "sorgho": 1.8,
-                  "arachide": 1.5, "manioc": 8.0, "igname": 10.0, "coton": 1.2}
+    base_yield = {
+        "maïs": 2.5,
+        "riz": 3.0,
+        "mil": 1.2,
+        "sorgho": 1.8,
+        "arachide": 1.5,
+        "manioc": 8.0,
+        "igname": 10.0,
+        "coton": 1.2,
+    }
     base = base_yield.get(request.crop.lower(), 2.0)
-    soil_factor = {"sandy": 0.8, "clay": 1.1, "loamy": 1.2, "laterite": 0.9, "alluvial": 1.3}
+    soil_factor = {
+        "sandy": 0.8,
+        "clay": 1.1,
+        "loamy": 1.2,
+        "laterite": 0.9,
+        "alluvial": 1.3,
+    }
     sf = soil_factor.get(request.soil_type or "loamy", 1.0)
     irr_factor = 1.3 if request.irrigation else 1.0
     area_norm = min(request.area_ha / 100, 1.0)
     value = round(base * sf * irr_factor * (0.9 + area_norm * 0.1), 3)
 
     factors = [
-        {"name": "Type de sol", "impact": 0.30, "direction": "positive", "description": f"Sol {request.soil_type or 'loamy'} - facteur {sf}", "category": "agronomic"},
-        {"name": "Irrigation", "impact": 0.25, "direction": "positive" if request.irrigation else "neutral", "description": "Irrigation active" if request.irrigation else "Pluvial", "category": "agronomic"},
-        {"name": "Surface cultivée", "impact": 0.20, "direction": "positive", "description": f"{request.area_ha} ha", "category": "agronomic"},
-        {"name": "Précipitations", "impact": 0.15, "direction": "positive", "description": "Conditions favorables", "category": "climatic"},
+        {
+            "name": "Type de sol",
+            "impact": 0.30,
+            "direction": "positive",
+            "description": f"Sol {request.soil_type or 'loamy'} - facteur {sf}",
+            "category": "agronomic",
+        },
+        {
+            "name": "Irrigation",
+            "impact": 0.25,
+            "direction": "positive" if request.irrigation else "neutral",
+            "description": "Irrigation active" if request.irrigation else "Pluvial",
+            "category": "agronomic",
+        },
+        {
+            "name": "Surface cultivée",
+            "impact": 0.20,
+            "direction": "positive",
+            "description": f"{request.area_ha} ha",
+            "category": "agronomic",
+        },
+        {
+            "name": "Précipitations",
+            "impact": 0.15,
+            "direction": "positive",
+            "description": "Conditions favorables",
+            "category": "climatic",
+        },
     ]
-    return _build_result("yield", value, "t/ha", request.model_dump(), 0.82, "up", factors)
+    return _build_result(
+        "yield", value, "t/ha", request.model_dump(), 0.82, "up", factors
+    )
 
 
 @router.post("/predict/price")
@@ -165,9 +246,18 @@ async def predict_price(
     current_user: User = Depends(get_current_verified_user),
 ):
     """Prediction de prix de marché"""
-    base_prices = {"riz": 650, "maïs": 350, "mil": 300, "sorgho": 320,
-                   "arachide": 500, "manioc": 250, "igname": 400, "coton": 600,
-                   "cacao": 2500, "café": 2000}
+    base_prices = {
+        "riz": 650,
+        "maïs": 350,
+        "mil": 300,
+        "sorgho": 320,
+        "arachide": 500,
+        "manioc": 250,
+        "igname": 400,
+        "coton": 600,
+        "cacao": 2500,
+        "café": 2000,
+    }
     base = base_prices.get(request.product.lower(), 400)
     trend = random.choice(["up", "down", "stable"])
     trend_pct = round((random.random() - 0.4) * 15, 1)
@@ -180,12 +270,44 @@ async def predict_price(
         value = round(base * (1 + (random.random() - 0.5) * 0.02), 0)
 
     factors = [
-        {"name": "Offre", "impact": 0.35, "direction": "positive", "description": "Offre abondante", "category": "market"},
-        {"name": "Demande", "impact": 0.30, "direction": "positive", "description": "Demande soutenue", "category": "market"},
-        {"name": "Saison", "impact": 0.20, "direction": "neutral", "description": "Pleine saison", "category": "economic"},
-        {"name": "Export", "impact": 0.15, "direction": "positive", "description": "Marché régional actif", "category": "market"},
+        {
+            "name": "Offre",
+            "impact": 0.35,
+            "direction": "positive",
+            "description": "Offre abondante",
+            "category": "market",
+        },
+        {
+            "name": "Demande",
+            "impact": 0.30,
+            "direction": "positive",
+            "description": "Demande soutenue",
+            "category": "market",
+        },
+        {
+            "name": "Saison",
+            "impact": 0.20,
+            "direction": "neutral",
+            "description": "Pleine saison",
+            "category": "economic",
+        },
+        {
+            "name": "Export",
+            "impact": 0.15,
+            "direction": "positive",
+            "description": "Marché régional actif",
+            "category": "market",
+        },
     ]
-    return _build_result("price", float(value), f"FCFA/{request.product.lower()}", request.model_dump(), 0.75, trend, factors)
+    return _build_result(
+        "price",
+        float(value),
+        f"FCFA/{request.product.lower()}",
+        request.model_dump(),
+        0.75,
+        trend,
+        factors,
+    )
 
 
 @router.post("/predict/weather")
@@ -203,22 +325,36 @@ async def predict_weather(
         t_max = round(base_temp + 2 + (i % 2) * 2, 1)
         precip = round(max(0, 8 + math.sin(i * 0.5) * 6 + (i % 3) * 2), 1)
         humidity = round(65 + (i % 5) * 4, 0)
-        conditions = ["Ensoleillé", "Partiellement nuageux", "Nuageux",
-                      "Pluie légère", "Orages isolés", "Venteux"]
-        forecast.append({
-            "date": day.strftime("%Y-%m-%d"),
-            "temperature_min": t_min,
-            "temperature_max": t_max,
-            "precipitation_mm": precip,
-            "humidity_percent": humidity,
-            "condition": conditions[i % len(conditions)],
-            "confidence": round(max(0.5, 0.92 - i * 0.035), 2),
-        })
+        conditions = [
+            "Ensoleillé",
+            "Partiellement nuageux",
+            "Nuageux",
+            "Pluie légère",
+            "Orages isolés",
+            "Venteux",
+        ]
+        forecast.append(
+            {
+                "date": day.strftime("%Y-%m-%d"),
+                "temperature_min": t_min,
+                "temperature_max": t_max,
+                "precipitation_mm": precip,
+                "humidity_percent": humidity,
+                "condition": conditions[i % len(conditions)],
+                "confidence": round(max(0.5, 0.92 - i * 0.035), 2),
+            }
+        )
 
-    avg_temp = round(sum((f["temperature_min"] + f["temperature_max"]) / 2 for f in forecast) / len(forecast), 1)
+    avg_temp = round(
+        sum((f["temperature_min"] + f["temperature_max"]) / 2 for f in forecast)
+        / len(forecast),
+        1,
+    )
     avg_precip = round(sum(f["precipitation_mm"] for f in forecast) / len(forecast), 1)
 
-    result = _build_result("weather", avg_temp, "°C", request.model_dump(), 0.85, "stable")
+    result = _build_result(
+        "weather", avg_temp, "°C", request.model_dump(), 0.85, "stable"
+    )
     result["forecast"] = forecast
     result["days"] = days
     result["avg_precipitation"] = avg_precip
@@ -231,17 +367,39 @@ async def predict_production(
     current_user: User = Depends(get_current_verified_user),
 ):
     """Prediction de volume de production"""
-    base_yields = {"maïs": 2.5, "riz": 3.0, "mil": 1.2, "sorgho": 1.8,
-                   "arachide": 1.5, "manioc": 8.0, "igname": 10.0, "coton": 1.2}
+    base_yields = {
+        "maïs": 2.5,
+        "riz": 3.0,
+        "mil": 1.2,
+        "sorgho": 1.8,
+        "arachide": 1.5,
+        "manioc": 8.0,
+        "igname": 10.0,
+        "coton": 1.2,
+    }
     yield_per_ha = base_yields.get(request.product.lower(), 2.0)
     area = request.total_area_ha or 100
     value = round(yield_per_ha * area * (0.9 + random.random() * 0.2), 1)
 
     factors = [
-        {"name": "Rendement", "impact": 0.5, "direction": "positive", "description": f"{yield_per_ha} t/ha", "category": "agronomic"},
-        {"name": "Surface", "impact": 0.5, "direction": "positive", "description": f"{area} ha cultivés", "category": "agronomic"},
+        {
+            "name": "Rendement",
+            "impact": 0.5,
+            "direction": "positive",
+            "description": f"{yield_per_ha} t/ha",
+            "category": "agronomic",
+        },
+        {
+            "name": "Surface",
+            "impact": 0.5,
+            "direction": "positive",
+            "description": f"{area} ha cultivés",
+            "category": "agronomic",
+        },
     ]
-    return _build_result("production", value, "tonnes", request.model_dump(), 0.78, "up", factors)
+    return _build_result(
+        "production", value, "tonnes", request.model_dump(), 0.78, "up", factors
+    )
 
 
 @router.post("/predict/disease")
@@ -255,7 +413,9 @@ async def predict_disease(
     rain = request.rainfall_7d or 50
 
     # Simple risk heuristic
-    risk_score = min(1.0, (humid / 100) * 0.4 + (rain / 200) * 0.3 + max(0, (temp - 25) / 20) * 0.3)
+    risk_score = min(
+        1.0, (humid / 100) * 0.4 + (rain / 200) * 0.3 + max(0, (temp - 25) / 20) * 0.3
+    )
     risk_pct = round(risk_score * 100, 0)
 
     # Generer predictions chart data
@@ -264,11 +424,14 @@ async def predict_disease(
     for i in range(6):
         d = (now + timedelta(days=30 * (i + 1))).strftime("%Y-%m-%d")
         v = min(100, round(risk_pct + (random.random() - 0.5) * 20, 0))
-        prediction_pts.append({
-            "date": d, "value": v,
-            "lower_bound": max(0, v - 15),
-            "upper_bound": min(100, v + 15),
-        })
+        prediction_pts.append(
+            {
+                "date": d,
+                "value": v,
+                "lower_bound": max(0, v - 15),
+                "upper_bound": min(100, v + 15),
+            }
+        )
 
     risk_level = "low" if risk_pct < 30 else "medium" if risk_pct < 60 else "high"
     return {
@@ -283,13 +446,35 @@ async def predict_disease(
         "trend": "up" if risk_pct > 50 else "down",
         "trend_percent": round((random.random() - 0.3) * 15, 1),
         "key_factors": [
-            {"name": "Humidité", "impact": 0.4, "direction": "positive", "description": f"{humid}% HR", "category": "climatic"},
-            {"name": "Précipitations", "impact": 0.3, "direction": "positive", "description": f"{rain} mm/7j", "category": "climatic"},
-            {"name": "Température", "impact": 0.3, "direction": "positive", "description": f"{temp}°C", "category": "climatic"},
+            {
+                "name": "Humidité",
+                "impact": 0.4,
+                "direction": "positive",
+                "description": f"{humid}% HR",
+                "category": "climatic",
+            },
+            {
+                "name": "Précipitations",
+                "impact": 0.3,
+                "direction": "positive",
+                "description": f"{rain} mm/7j",
+                "category": "climatic",
+            },
+            {
+                "name": "Température",
+                "impact": 0.3,
+                "direction": "positive",
+                "description": f"{temp}°C",
+                "category": "climatic",
+            },
         ],
         "historical_data": [
-            {"date": (now - timedelta(days=30 * (6 - i))).strftime("%Y-%m-%d"),
-             "value": round(max(0, min(100, risk_pct - 20 + random.random() * 40)), 0)}
+            {
+                "date": (now - timedelta(days=30 * (6 - i))).strftime("%Y-%m-%d"),
+                "value": round(
+                    max(0, min(100, risk_pct - 20 + random.random() * 40)), 0
+                ),
+            }
             for i in range(7)
         ],
         "prediction_data": prediction_pts,
@@ -300,7 +485,9 @@ async def predict_disease(
             "Surveiller les conditions humides prolongées",
             "Appliquer un traitement fongicide préventif si risque > 60%",
             "Assurer une bonne ventilation des cultures",
-        ] if risk_pct > 40 else [
+        ]
+        if risk_pct > 40
+        else [
             "Risque faible - surveillance de routine suffisante",
         ],
         "created_at": now.isoformat() + "Z",
@@ -322,12 +509,18 @@ async def predict_disease_from_image(
             detail={
                 "code": "IMAGE_NOT_SUPPORTED",
                 "message": f'Impossible de lire "{file.filename}" (ce modèle ne supporte pas les images). '
-                           f'Le modèle "{CURRENT_PREDICTION_MODEL}" est un modèle tabulaire qui '
-                           f"analyse uniquement des données numériques (température, humidité, etc.). "
-                           f"Pour l'analyse d'images, utilisez plutôt l'assistant IA dans le chat.",
+                f'Le modèle "{CURRENT_PREDICTION_MODEL}" est un modèle tabulaire qui '
+                f"analyse uniquement des données numériques (température, humidité, etc.). "
+                f"Pour l'analyse d'images, utilisez plutôt l'assistant IA dans le chat.",
                 "model": CURRENT_PREDICTION_MODEL,
-                "supported_inputs": ["température", "humidité", "précipitations", "type de sol", "surface"],
-            }
+                "supported_inputs": [
+                    "température",
+                    "humidité",
+                    "précipitations",
+                    "type de sol",
+                    "surface",
+                ],
+            },
         )
 
     # If model DID support images, this is where we'd process them
@@ -352,17 +545,23 @@ async def compare_scenarios(
 
     results = []
     for i, sc in enumerate(scenarios):
-        base_yield = {"maïs": 2.5, "riz": 3.0, "mil": 1.2, "sorgho": 1.8}.get(sc.crop.lower(), 2.0)
-        soil_factor = {"sandy": 0.8, "clay": 1.1, "loamy": 1.2}.get(sc.soil_type or "loamy", 1.0)
+        base_yield = {"maïs": 2.5, "riz": 3.0, "mil": 1.2, "sorgho": 1.8}.get(
+            sc.crop.lower(), 2.0
+        )
+        soil_factor = {"sandy": 0.8, "clay": 1.1, "loamy": 1.2}.get(
+            sc.soil_type or "loamy", 1.0
+        )
         irr = 1.3 if sc.irrigation else 1.0
         val = round(base_yield * soil_factor * irr * (0.85 + random.random() * 0.3), 3)
-        results.append({
-            "scenario": f"Scénario {i + 1}",
-            "input": sc.model_dump(),
-            "value": val,
-            "unit": "t/ha",
-            "confidence": round(0.70 + random.random() * 0.25, 2),
-        })
+        results.append(
+            {
+                "scenario": f"Scénario {i + 1}",
+                "input": sc.model_dump(),
+                "value": val,
+                "unit": "t/ha",
+                "confidence": round(0.70 + random.random() * 0.25, 2),
+            }
+        )
     return {"scenarios": results, "count": len(results)}
 
 
@@ -381,14 +580,16 @@ async def batch_predict(
         try:
             base = {"maïs": 2.5, "riz": 3.0, "mil": 1.2}.get(req.crop.lower(), 2.0)
             val = round(base * (0.85 + random.random() * 0.3), 3)
-            results.append({
-                "index": i,
-                "id": _generate_id(),
-                "value": val,
-                "unit": "t/ha",
-                "confidence": round(0.70 + random.random() * 0.25, 2),
-                "input": req.model_dump(),
-            })
+            results.append(
+                {
+                    "index": i,
+                    "id": _generate_id(),
+                    "value": val,
+                    "unit": "t/ha",
+                    "confidence": round(0.70 + random.random() * 0.25, 2),
+                    "input": req.model_dump(),
+                }
+            )
         except Exception as e:
             errors.append({"index": i, "message": str(e)})
     return {
@@ -424,21 +625,44 @@ async def get_prediction_history(
             "production": "Production Maïs",
             "disease": "Risque maladie - Maïs",
         }
-        values = {"yield": 2.5, "price": 650, "weather": 30.5, "production": 250, "disease": 45}
-        units = {"yield": "t/ha", "price": "FCFA", "weather": "°C", "production": "tonnes", "disease": "%"}
-        history.append({
-            "id": f"pred_{_generate_id()}",
-            "type": t,
-            "label": labels.get(t, t),
-            "input_summary": labels.get(t, ""),
-            "predicted_value": round(values.get(t, 0) * (1 + (i % 5) * 0.02), 2),
-            "unit": units.get(t, ""),
-            "confidence": round(0.80 - i * 0.01, 2),
-            "has_actual": i < 5,
-            "actual_value": round(values.get(t, 0) * (1 + (i % 5) * 0.02) * (0.9 + random.random() * 0.2), 2) if i < 5 else None,
-            "user_feedback": ["accurate", "accurate", "underestimated"][i % 3] if i < 5 else None,
-            "created_at": (now - timedelta(hours=i * 6)).isoformat() + "Z",
-        })
+        values = {
+            "yield": 2.5,
+            "price": 650,
+            "weather": 30.5,
+            "production": 250,
+            "disease": 45,
+        }
+        units = {
+            "yield": "t/ha",
+            "price": "FCFA",
+            "weather": "°C",
+            "production": "tonnes",
+            "disease": "%",
+        }
+        history.append(
+            {
+                "id": f"pred_{_generate_id()}",
+                "type": t,
+                "label": labels.get(t, t),
+                "input_summary": labels.get(t, ""),
+                "predicted_value": round(values.get(t, 0) * (1 + (i % 5) * 0.02), 2),
+                "unit": units.get(t, ""),
+                "confidence": round(0.80 - i * 0.01, 2),
+                "has_actual": i < 5,
+                "actual_value": round(
+                    values.get(t, 0)
+                    * (1 + (i % 5) * 0.02)
+                    * (0.9 + random.random() * 0.2),
+                    2,
+                )
+                if i < 5
+                else None,
+                "user_feedback": ["accurate", "accurate", "underestimated"][i % 3]
+                if i < 5
+                else None,
+                "created_at": (now - timedelta(hours=i * 6)).isoformat() + "Z",
+            }
+        )
     return {"history": history, "count": len(history)}
 
 
@@ -452,9 +676,55 @@ async def export_predictions(
         raise HTTPException(status_code=400, detail="Aucun ID fourni")
     return {
         "format": "csv",
-        "data": "id,type,valeur,unite,confiance,date\n" + "\n".join(
-            f"{i},{['yield','price'][i%2]},{round(2.5+random.random(),2)},{['t/ha','FCFA'][i%2]},{round(0.75+random.random()*0.2,2)},2024-01-{str(i+1).zfill(2)}"
+        "data": "id,type,valeur,unite,confiance,date\n"
+        + "\n".join(
+            f"{i},{['yield', 'price'][i % 2]},{round(2.5 + random.random(), 2)},{['t/ha', 'FCFA'][i % 2]},{round(0.75 + random.random() * 0.2, 2)},2024-01-{str(i + 1).zfill(2)}"
             for i, _ in enumerate(ids[:50])
         ),
         "count": min(len(ids), 50),
     }
+
+
+# ─── Path aliases for frontend compatibility ─────────────────────────────────
+# The frontend calls /predictions/yield, /predictions/price, etc.
+# but the actual endpoints are at /predictions/predict/yield etc.
+
+
+@router.post("/yield")
+async def predict_yield_alias(
+    request: YieldPredictionRequest,
+    current_user: User = Depends(get_current_verified_user),
+):
+    return await predict_yield(request, current_user)
+
+
+@router.post("/price")
+async def predict_price_alias(
+    request: PricePredictionRequest,
+    current_user: User = Depends(get_current_verified_user),
+):
+    return await predict_price(request, current_user)
+
+
+@router.post("/weather")
+async def predict_weather_alias(
+    request: WeatherPredictionRequest,
+    current_user: User = Depends(get_current_verified_user),
+):
+    return await predict_weather(request, current_user)
+
+
+@router.post("/production")
+async def predict_production_alias(
+    request: ProductionPredictionRequest,
+    current_user: User = Depends(get_current_verified_user),
+):
+    return await predict_production(request, current_user)
+
+
+@router.post("/disease")
+async def predict_disease_alias(
+    request: DiseasePredictionRequest,
+    current_user: User = Depends(get_current_verified_user),
+):
+    return await predict_disease(request, current_user)

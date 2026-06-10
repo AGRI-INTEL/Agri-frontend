@@ -15,13 +15,16 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from config.config import get_settings
+
 # Commented out database imports to avoid connection issues
 # from config.database import create_db_and_tables, close_db_connections
 from config.logging import setup_logging
+
 # Uncommented router imports
 from api.routers.router import api_v1_router
+
 # from api.routers.health import health_router
-# from api.routers.websocket import websocket_router
+from api.routers.websocket import websocket_router
 from src.middleware.security import SecurityHeadersMiddleware
 from src.middleware.logging import LoggingMiddleware
 from src.middleware.security import RateLimitMiddleware
@@ -37,6 +40,7 @@ async def lifespan(app: FastAPI):
     setup_logging()
     try:
         from config.database import create_db_and_tables
+
         await create_db_and_tables()
     except Exception as e:
         # Do not fail app startup in development when DB is unavailable.
@@ -53,6 +57,7 @@ async def lifespan(app: FastAPI):
     # Shutdown
     try:
         from config.database import close_db_connections
+
         await close_db_connections()
     except Exception as e:
         print(f"⚠️  Database shutdown warning: {e}")
@@ -66,25 +71,38 @@ app = FastAPI(
     openapi_url=f"{settings.API_V1_STR}/openapi.json",
     docs_url=f"{settings.API_V1_STR}/docs",
     redoc_url=f"{settings.API_V1_STR}/redoc",
-    lifespan=lifespan
+    lifespan=lifespan,
 )
 
 
 # Ensure CORS headers are always present (including on exceptions)
 @app.middleware("http")
 async def ensure_cors_headers(request: Request, call_next):
+    # Skip WebSocket requests (handled by the WS router directly)
+    if request.scope.get("type") == "websocket":
+        return await call_next(request)
     # Handle OPTIONS preflight quickly
     if request.method == "OPTIONS":
         from fastapi.responses import Response
+
         origin = request.headers.get("origin")
         res = Response(status_code=204)
-        if origin and (origin in settings.BACKEND_CORS_ORIGINS or "*" in settings.BACKEND_CORS_ORIGINS):
+        if origin and (
+            origin in settings.BACKEND_CORS_ORIGINS
+            or "*" in settings.BACKEND_CORS_ORIGINS
+        ):
             res.headers["Access-Control-Allow-Origin"] = origin
         else:
-            res.headers["Access-Control-Allow-Origin"] = ",".join(settings.BACKEND_CORS_ORIGINS)
+            res.headers["Access-Control-Allow-Origin"] = ",".join(
+                settings.BACKEND_CORS_ORIGINS
+            )
         res.headers["Access-Control-Allow-Credentials"] = "true"
-        res.headers["Access-Control-Allow-Methods"] = "GET,POST,PUT,DELETE,OPTIONS,PATCH"
-        res.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+        res.headers["Access-Control-Allow-Methods"] = (
+            "GET,POST,PUT,DELETE,OPTIONS,PATCH"
+        )
+        res.headers["Access-Control-Allow-Headers"] = (
+            "Content-Type, Authorization, X-Requested-With, Accept, Origin"
+        )
         return res
 
     try:
@@ -94,16 +112,26 @@ async def ensure_cors_headers(request: Request, call_next):
         response = JSONResponse(status_code=500, content={"detail": str(exc)})
 
     origin = request.headers.get("origin")
-    if origin and (origin in settings.BACKEND_CORS_ORIGINS or "*" in settings.BACKEND_CORS_ORIGINS):
+    if origin and (
+        origin in settings.BACKEND_CORS_ORIGINS or "*" in settings.BACKEND_CORS_ORIGINS
+    ):
         response.headers["Access-Control-Allow-Origin"] = origin
     else:
         # fall back to configured origins (use first if available)
-        response.headers["Access-Control-Allow-Origin"] = ",".join(settings.BACKEND_CORS_ORIGINS)
+        response.headers["Access-Control-Allow-Origin"] = ",".join(
+            settings.BACKEND_CORS_ORIGINS
+        )
     response.headers.setdefault("Access-Control-Allow-Credentials", "true")
-    response.headers.setdefault("Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS,PATCH")
-    response.headers.setdefault("Access-Control-Allow-Headers", "Content-Type, Authorization, X-Requested-With, Accept, Origin")
+    response.headers.setdefault(
+        "Access-Control-Allow-Methods", "GET,POST,PUT,DELETE,OPTIONS,PATCH"
+    )
+    response.headers.setdefault(
+        "Access-Control-Allow-Headers",
+        "Content-Type, Authorization, X-Requested-With, Accept, Origin",
+    )
 
     return response
+
 
 # CORS Middleware
 app.add_middleware(
@@ -111,7 +139,13 @@ app.add_middleware(
     allow_origins=settings.BACKEND_CORS_ORIGINS,
     allow_credentials=True,
     allow_methods=["GET", "POST", "PUT", "DELETE", "OPTIONS", "PATCH"],
-    allow_headers=["Content-Type", "Authorization", "X-Requested-With", "Accept", "Origin"],
+    allow_headers=[
+        "Content-Type",
+        "Authorization",
+        "X-Requested-With",
+        "Accept",
+        "Origin",
+    ],
     expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
     max_age=3600,
 )
@@ -124,17 +158,18 @@ app.add_middleware(LoggingMiddleware)
 
 # Trusted Host Middleware
 if settings.ENVIRONMENT == "production":
-    app.add_middleware(
-        TrustedHostMiddleware, 
-        allowed_hosts=settings.ALLOWED_HOSTS
-    )
+    app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 
 # Static files
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=settings.UPLOAD_DIR), name="static")
 
-# Include API routers
+# Include API routers (API v1 routes go through middleware)
 app.include_router(api_v1_router, prefix=settings.API_V1_STR)
+
+# WebSocket router bypasses HTTP middleware (BaseHTTPMiddleware doesn't support WS)
+app.include_router(websocket_router, prefix=settings.API_V1_STR)
+
 
 # Simple test endpoint
 @app.get("/")
@@ -143,10 +178,12 @@ async def root():
     return {
         "message": f"Bienvenue sur {settings.PROJECT_NAME}",
         "version": settings.VERSION,
-        "status": "active"
+        "status": "active",
     }
 
+
 # Health check endpoint — géré par health_router dans /api/v1/health
+
 
 # Metrics endpoint
 @app.get("/metrics")
@@ -159,7 +196,7 @@ async def metrics_endpoint():
         "status": "running",
         "uptime": "available",
         "requests_total": 0,
-        "errors_total": 0
+        "errors_total": 0,
     }
 
 
@@ -169,5 +206,5 @@ if __name__ == "__main__":
         host="0.0.0.0",
         port=8000,
         reload=settings.DEBUG,
-        log_level="info"
+        log_level="info",
     )
