@@ -314,6 +314,40 @@ class CommunityService:
         result = await db.execute(query)
         return result.first() is not None
     
+    async def get_group_members(self, group_id: str, db: AsyncSession) -> list:
+        """Récupère les membres d'un groupe"""
+        from api.schemas.community import GroupMemberInfo
+        query = (
+            select(
+                group_members.c.user_id,
+                group_members.c.role,
+                group_members.c.joined_at,
+                group_members.c.last_activity,
+                group_members.c.is_active,
+                User.username,
+                User.full_name,
+                User.avatar_url,
+            )
+            .select_from(group_members)
+            .join(User, User.id == group_members.c.user_id)
+            .where(group_members.c.group_id == group_id, group_members.c.is_active == True)
+        )
+        result = await db.execute(query)
+        rows = result.fetchall()
+        return [
+            GroupMemberInfo(
+                user_id=row.user_id,
+                username=row.username,
+                full_name=row.full_name,
+                avatar_url=row.avatar_url,
+                role=row.role.value if hasattr(row.role, 'value') else str(row.role),
+                joined_at=row.joined_at,
+                last_activity=row.last_activity,
+                is_active=row.is_active,
+            )
+            for row in rows
+        ]
+
     async def _comment_to_response(self, comment: Comment, db: AsyncSession):
         """Convertit un commentaire en réponse"""
         from api.schemas.community import CommentResponse

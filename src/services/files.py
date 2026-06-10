@@ -66,6 +66,7 @@ class StorageService:
     def __init__(self):
         self.upload_dir = Path(settings.UPLOAD_DIR)
         self.upload_dir.mkdir(parents=True, exist_ok=True)
+        self.cloudinary_enabled = settings.cloudinary_active
         
         # Configuration des types de fichiers autorisés
         self.allowed_types = {

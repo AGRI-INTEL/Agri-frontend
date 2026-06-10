@@ -18,6 +18,7 @@ from api.schemas.community import (
     GroupUpdate,
     GroupDetailResponse,
     GroupListResponse,
+    GroupMemberInfo,
     PostResponse,
     PostCreate,
     PostUpdate,
@@ -137,6 +138,16 @@ async def leave_group(
     if not success:
         raise HTTPException(status_code=400, detail="Impossible de quitter le groupe")
     return {"message": "Vous avez quitté le groupe"}
+
+
+@router.get("/groups/{group_id}/members", response_model=List[GroupMemberInfo])
+async def get_group_members(
+    group_id: str,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Récupérer les membres d'un groupe"""
+    return await community_service.get_group_members(group_id, db)
 
 
 @router.get("/groups", response_model=GroupListResponse)
