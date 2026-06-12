@@ -59,6 +59,16 @@ class Settings(BaseSettings):
     BCRYPT_ROUNDS: int = 12
     ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1"]
 
+    @validator("ALLOWED_HOSTS", pre=True)
+    def assemble_allowed_hosts(cls, v: Any) -> List[str]:
+        if isinstance(v, str) and not v.startswith("["):
+            return [i.strip() for i in v.split(",")]
+        elif isinstance(v, list):
+            return v
+        elif isinstance(v, str):
+            return [v]
+        raise ValueError(v)
+
     # Default administrator account
     DEFAULT_ADMIN_EMAIL: str = "admin@agri.com"
     DEFAULT_ADMIN_PASSWORD: str = Field(default="CHANGE_ME")
