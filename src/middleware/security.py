@@ -185,26 +185,20 @@ class CORSSecurityMiddleware(BaseHTTPMiddleware):
 
 from fastapi import Request, Response, status
 from fastapi.responses import JSONResponse
-from fastapi_csrf_protect import CsrfProtect
-from fastapi_csrf_protect.exceptions import CsrfProtectError
 from pydantic import BaseModel
 
 from config.config import get_settings
-
-
-class CsrfSettings(BaseModel):
-    secret_key: str = get_settings().JWT_SECRET_KEY
-
-
-@CsrfProtect.load_config
-def get_csrf_config():
-    return CsrfSettings()
 
 
 class CSRFProtectMiddleware(BaseHTTPMiddleware):
     """CSRF protection middleware using fastapi-csrf-protect"""
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        try:
+            from fastapi_csrf_protect import CsrfProtect
+            from fastapi_csrf_protect.exceptions import CsrfProtectError
+        except ImportError:
+            return await call_next(request)
         csrf_protect = CsrfProtect(request)
         try:
             await csrf_protect.validate_csrf_token()

@@ -26,6 +26,10 @@ from api.routers.websocket import websocket_router
 
 api_v1_router = APIRouter()
 
+@api_v1_router.get("/")
+async def api_v1_root():
+    return {"message": "AgriIntel360 API v1", "status": "operational"}
+
 # ── Core ───────────────────────────────────────────────────────────────────────
 api_v1_router.include_router(auth_router, prefix="/auth", tags=["Authentication"])
 api_v1_router.include_router(users_router, prefix="/users", tags=["Users"])

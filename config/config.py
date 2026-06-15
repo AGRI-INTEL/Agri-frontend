@@ -61,12 +61,17 @@ class Settings(BaseSettings):
 
     @validator("ALLOWED_HOSTS", pre=True)
     def assemble_allowed_hosts(cls, v: Any) -> List[str]:
-        if isinstance(v, str) and not v.startswith("["):
-            return [i.strip() for i in v.split(",")]
+        if isinstance(v, str) and v.startswith("["):
+            import json
+
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if isinstance(v, str):
+            return [i.strip().strip('"').strip("'") for i in v.split(",")]
         elif isinstance(v, list):
             return v
-        elif isinstance(v, str):
-            return [v]
         raise ValueError(v)
 
     # Default administrator account
@@ -85,13 +90,17 @@ class Settings(BaseSettings):
 
     @validator("BACKEND_CORS_ORIGINS", pre=True)
     def assemble_cors_origins(cls, v: Any) -> List[str]:
-        if isinstance(v, str) and not v.startswith("["):
-            return [i.strip() for i in v.split(",")]
+        if isinstance(v, str) and v.startswith("["):
+            import json
+
+            try:
+                return json.loads(v)
+            except (json.JSONDecodeError, TypeError):
+                pass
+        if isinstance(v, str):
+            return [i.strip().strip('"').strip("'") for i in v.split(",")]
         elif isinstance(v, list):
             return v
-        elif isinstance(v, str):
-            # Handle string that starts with '[' (likely JSON-like format)
-            return [v]
         raise ValueError(v)
 
     # File upload
