@@ -18,41 +18,15 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         response = await call_next(request)
 
         # Swagger/ReDoc ont besoin du CDN jsdelivr — on assouplit la CSP pour ces routes
-        is_docs_route = request.url.path.rstrip("/") in (
-            "/api/v1/docs",
-            "/api/v1/redoc",
-        )
-
-        if is_docs_route:
-            csp = (
-                "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
-                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-                "img-src 'self' data: https:; "
-                "connect-src 'self' https:; "
-                "font-src 'self' https://cdn.jsdelivr.net; "
-                "object-src 'none';"
-            )
-        else:
-            csp = (
-                "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline' 'unsafe-eval'; "
-                "style-src 'self' 'unsafe-inline'; "
-                "img-src 'self' data: https:; "
-                "connect-src 'self' https:; "
-                "font-src 'self' https:; "
-                "object-src 'none'; "
-                "base-uri 'self'; "
-                "form-action 'self';"
-            )
+        # NOTE: Désactivé car géré par le proxy PHP ou Next.js pour éviter les conflits
+        csp = None
 
         # Security headers
         security_headers = {
-            "X-Frame-Options": "DENY",
+            "X-Frame-Options": "SAMEORIGIN",
             "X-Content-Type-Options": "nosniff",
             "X-XSS-Protection": "1; mode=block",
             "Referrer-Policy": "strict-origin-when-cross-origin",
-            "Content-Security-Policy": csp,
             # Strict Transport Security (HTTPS only)
             "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
             # Permissions Policy

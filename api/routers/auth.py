@@ -9,6 +9,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
 from sqlalchemy import select
 from jose import jwt, JWTError
+from urllib.parse import quote_plus as url_encode
 
 from config.config import get_settings
 from config.database import get_db
@@ -632,6 +633,32 @@ async def get_2fa_status(
     }
 
 
+@router.get("/activity")
+async def get_user_activity(
+    page: int = 1,
+    limit: int = 10,
+    current_user: User = Depends(get_current_active_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Récupère l'historique des connexions de l'utilisateur"""
+    # Retourne des données mockées car pas de table ActivityLog
+    return {
+        "data": [
+            {
+                "id": "1",
+                "type": "success",
+                "device_name": "Firefox sur Linux",
+                "device_type": "web",
+                "ip": "127.0.0.1",
+                "timestamp": datetime.utcnow().isoformat(),
+            }
+        ],
+        "total": 1,
+        "page": page,
+        "limit": limit,
+    }
+
+
 # ── API Keys ───────────────────────────────────────────────────────────────────
 
 @router.post("/api-keys", response_model=APIKey)
@@ -699,9 +726,9 @@ async def delete_api_key(
 def _build_backend_url() -> str:
     """Build the backend base URL from settings."""
     from config.config import get_settings
-    env = get_settings().ENVIRONMENT
-    if env == "production":
-        return "https://agriintel360.lsgrouptogo.com/api"
+    _settings = get_settings()
+    if _settings.ENVIRONMENT == "production":
+        return f"https://{_settings.ALLOWED_HOSTS[0]}/api" if _settings.ALLOWED_HOSTS else "https://agriintel360.lsgrouptogo.com/api"
     return "http://localhost:8000"
 
 
@@ -798,14 +825,34 @@ async def oauth_google_callback(request: Request, db: AsyncSession = Depends(get
         token = await oauth.google.authorize_access_token(request)
         user_info = token.get("userinfo") or await oauth.google.userinfo(token=token)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Erreur OAuth Google: {e}")
+        # Redirect back to login with error
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=f"{_settings.FRONTEND_URL}/login?error={url_encode(str(e))}")
 
     email = user_info.get("email")
     if not email:
-        raise HTTPException(status_code=400, detail="Email non fourni par Google")
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=f"{_settings.FRONTEND_URL}/login?error=Email+non+fourni")
 
     user = await _oauth_login_or_create(db, email, user_info, "google")
-    return _oauth_token_response(user)
+    response_data = _oauth_token_response(user)
+    
+    # Redirect to frontend callback page with tokens
+    from fastapi.responses import RedirectResponse
+    import json
+    token_json = json.dumps({
+        "access_token": response_data["access_token"],
+        "refresh_token": response_data["refresh_token"],
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "username": user.username,
+            "full_name": user.full_name
+        }
+    })
+    import base64
+    encoded_token = base64.b64encode(token_json.encode()).decode()
+    return RedirectResponse(url=f"{_settings.FRONTEND_URL}/auth/callback?data={encoded_token}")
 
 
 # ── OAuth Microsoft ───────────────────────────────────────────────────────────

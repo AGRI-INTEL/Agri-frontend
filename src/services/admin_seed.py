@@ -11,7 +11,7 @@ from src.services.auth import AuthService
 
 
 async def ensure_default_admin_user() -> None:
-    """Create the default administrator account if it does not already exist."""
+    """Create or update the default administrator account."""
     settings = get_settings()
 
     async with async_session_maker() as db:
@@ -19,41 +19,37 @@ async def ensure_default_admin_user() -> None:
             db,
             settings.DEFAULT_ADMIN_EMAIL,
         )
+        
+        hashed_password = AuthService.hash_password(settings.DEFAULT_ADMIN_PASSWORD)
+
         if existing_admin:
-            updated = False
-
-            if existing_admin.role != UserRole.ADMIN:
-                existing_admin.role = UserRole.ADMIN
-                updated = True
-            if not existing_admin.is_active:
-                existing_admin.is_active = True
-                updated = True
-            if not existing_admin.is_verified:
-                existing_admin.is_verified = True
-                updated = True
-
-            if updated:
-                await db.commit()
-
-            print(f"✅ Default admin account ready: {settings.DEFAULT_ADMIN_EMAIL}")
+            # Force update if settings changed or to refresh hash
+            existing_admin.hashed_password = hashed_password
+            existing_admin.role = UserRole.ADMIN
+            existing_admin.is_active = True
+            existing_admin.is_verified = True
+            existing_admin.username = settings.DEFAULT_ADMIN_USERNAME
+            existing_admin.full_name = settings.DEFAULT_ADMIN_FULL_NAME
+            
+            await db.commit()
+            print(f"✅ Admin account updated: {settings.DEFAULT_ADMIN_EMAIL}")
             return
 
         admin_data = {
             "email": settings.DEFAULT_ADMIN_EMAIL,
             "username": settings.DEFAULT_ADMIN_USERNAME,
             "full_name": settings.DEFAULT_ADMIN_FULL_NAME,
-            "password": settings.DEFAULT_ADMIN_PASSWORD,
             "role": UserRole.ADMIN,
             "is_active": True,
             "is_verified": True,
         }
 
         try:
-            await AuthService.create_user(db, admin_data)
+            # We pass the already hashed password or use the dict
+            user = User(**admin_data, hashed_password=hashed_password)
+            db.add(user)
+            await db.commit()
             print(f"✅ Default admin account created: {settings.DEFAULT_ADMIN_EMAIL}")
-        except IntegrityError:
+        except Exception as e:
             await db.rollback()
-            print(
-                "⚠️  Default admin account could not be created because "
-                "its email or username already exists."
-            )
+            print(f"❌ Failed to seed admin: {e}")
