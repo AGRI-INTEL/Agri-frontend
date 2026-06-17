@@ -160,6 +160,7 @@ class Settings(BaseSettings):
     SMTP_USERNAME: Optional[str] = None
     SMTP_PASSWORD: Optional[str] = None
     SMTP_TLS: bool = True
+    SMTP_SSL: bool = False
 
     # SMS/Notifications
     TWILIO_ACCOUNT_SID: Optional[str] = None

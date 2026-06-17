@@ -2,7 +2,7 @@
 Chatbot API endpoints
 """
 
-from fastapi import APIRouter, Depends, HTTPException
+from fastapi import APIRouter, Depends, HTTPException, Form, UploadFile, File
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
 from datetime import datetime
@@ -42,12 +42,6 @@ class ChatFeedback(BaseModel):
     comment: Optional[str] = None
 
 
-class Conversation(BaseModel):
-    id: str
-    title: str
-    updated_at: str
-
-
 class Message(BaseModel):
     id: str
     role: str
@@ -55,15 +49,28 @@ class Message(BaseModel):
     timestamp: str
 
 
+class Conversation(BaseModel):
+    id: str
+    title: str
+    updated_at: str
+    message_count: int = 0
+    messages: Optional[List[Message]] = None
+
+
 @router.get("/conversations", response_model=List[Conversation])
 async def list_conversations(
     current_user: User = Depends(get_current_verified_user)
 ):
     """Liste les conversations du chatbot"""
-    # For now, return a single default conversation if history exists
     user_id = str(current_user.id)
-    if user_id in _chat_histories:
-        return [Conversation(id="default", title="Conversation actuelle", updated_at=datetime.utcnow().isoformat())]
+    history = _chat_histories.get(user_id, [])
+    if history:
+        return [Conversation(
+            id="default", 
+            title="Analyse en cours", 
+            updated_at=datetime.utcnow().isoformat(),
+            message_count=len(history)
+        )]
     return []
 
 
@@ -72,15 +79,21 @@ async def create_conversation(
     current_user: User = Depends(get_current_verified_user)
 ):
     """Crée une nouvelle conversation"""
-    return Conversation(id="default", title="Nouvelle conversation", updated_at=datetime.utcnow().isoformat())
+    return Conversation(
+        id="default", 
+        title="Nouvelle conversation", 
+        updated_at=datetime.utcnow().isoformat(),
+        message_count=0,
+        messages=[]
+    )
 
 
-@router.get("/conversations/{conversation_id}", response_model=List[Message])
-async def get_conversation_messages(
+@router.get("/conversations/{conversation_id}", response_model=Conversation)
+async def get_conversation_detail(
     conversation_id: str,
     current_user: User = Depends(get_current_verified_user)
 ):
-    """Récupère les messages d'une conversation"""
+    """Récupère les détails et messages d'une conversation"""
     user_id = str(current_user.id)
     history = _chat_histories.get(user_id, [])
     messages = []
@@ -91,16 +104,35 @@ async def get_conversation_messages(
             content=h["content"],
             timestamp=str(h["timestamp"])
         ))
-    return messages
+    
+    return Conversation(
+        id=conversation_id,
+        title="Analyse en cours" if messages else "Nouvelle conversation",
+        updated_at=datetime.utcnow().isoformat(),
+        message_count=len(messages),
+        messages=messages
+    )
 
 
 @router.post("/conversations/{conversation_id}/messages", response_model=ChatResponse)
 async def send_conversation_message(
     conversation_id: str,
-    chat_message: ChatMessage,
+    content: str = Form(...),
+    provider: Optional[str] = Form(None),
+    files: Optional[List[UploadFile]] = File(None),
     current_user: User = Depends(get_current_verified_user)
 ):
-    """Envoie un message dans une conversation spécifique"""
+    """Envoie un message dans une conversation spécifique (supporte FormData/Upload)"""
+    # Si un provider est spécifié, on bascule temporairement
+    if provider:
+        allowed = {"kimi", "deepseek", "openai", "demo"}
+        if provider in allowed:
+            _get_chatbot().switch_provider(provider)
+
+    # Note: On ignore les fichiers pour l'instant dans le chatbot de base, 
+    # mais on pourrait les traiter ici (OCR, etc.)
+    
+    chat_message = ChatMessage(message=content)
     return await chat_with_agribot(chat_message, current_user)
 
 

@@ -137,38 +137,15 @@ class NotificationService:
         if not user.email:
             return
 
-        def _do_send():
-            import subprocess
-            from email.mime.multipart import MIMEMultipart
-            from email.mime.text import MIMEText
-
-            msg = MIMEMultipart('alternative')
-            msg['Subject'] = f"AgriIntel360 - {alert['title']}"
-            msg['From'] = self.smtp_username or self.settings.MAIL_FROM or "noreply@agriintel360.lsgrouptogo.com"
-            msg['To'] = user.email
-
-            html_content = self._create_email_template(user, alert)
-            html_part = MIMEText(html_content, 'html', 'utf-8')
-            msg.attach(html_part)
-
-            proc = subprocess.run(
-                ["/usr/sbin/sendmail", "-t"],
-                input=msg.as_string(),
-                text=True,
-                capture_output=True,
-                timeout=15
-            )
-            if proc.returncode != 0:
-                raise RuntimeError(f"sendmail failed: {proc.stderr}")
-            return True
-
+        from src.services.email import send_email
+        
+        subject = f"AgriIntel360 - {alert['title']}"
+        html_content = self._create_email_template(user, alert)
+        
         try:
-            import asyncio
-            loop = asyncio.get_event_loop()
-            await loop.run_in_executor(None, _do_send)
-            print(f"Email sent to {user.email}")
+            await send_email([user.email], subject, html_content)
         except Exception as e:
-            print(f"Email send error: {e}")
+            print(f"❌ Erreur envoi email notification: {e}")
     
     async def _send_sms(self, user: User, alert: Dict[str, Any]):
         """Envoie une notification par SMS"""
