@@ -38,19 +38,11 @@ async def lifespan(app: FastAPI):
     """Application lifespan handler"""
     # Startup
     setup_logging()
-    # try:
-    #     from config.database import create_db_and_tables
-    #
-    #     await create_db_and_tables()
-    # except Exception as e:
-    #     # Do not fail app startup in development when DB is unavailable.
-    #     # Log the error and continue so frontend/dev work can proceed.
-    #     print(f"❌ Database initialization error: {e}")
-    #     if settings.DEBUG:
-    #         print("⚠️  Database startup failure (continuing in DEBUG mode)")
-    #     else:
-    #         # In production, we should fail early.
-    #         raise
+    try:
+        from config.database import create_db_and_tables
+        await create_db_and_tables()
+    except Exception as e:
+        print(f"⚠️  Database initialization warning (non-fatal): {e}")
 
     yield
 
@@ -73,6 +65,17 @@ app = FastAPI(
     redoc_url=f"{settings.API_V1_STR}/redoc",
     lifespan=lifespan,
 )
+
+
+# Prevent Varnish CDN from caching API responses (fixes 503/502 browser errors)
+@app.middleware("http")
+async def no_cache_api_responses(request: Request, call_next):
+    response = await call_next(request)
+    if request.url.path.startswith("/api/"):
+        response.headers["Cache-Control"] = "no-store, no-cache, must-revalidate, private"
+        response.headers["Pragma"] = "no-cache"
+        response.headers["Surrogate-Control"] = "no-store"
+    return response
 
 
 # Ensure CORS headers are always present (including on exceptions)

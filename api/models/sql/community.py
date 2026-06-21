@@ -62,7 +62,7 @@ group_members = Table(
     Base.metadata,
     Column('group_id', UUID(as_uuid=True), ForeignKey('groups.id'), primary_key=True),
     Column('user_id', UUID(as_uuid=True), ForeignKey('users.id'), primary_key=True),
-    Column('role', Enum(GroupRole), default=GroupRole.MEMBER, nullable=False),
+    Column('role', Enum(GroupRole, values_callable=lambda obj: [e.value for e in obj]), default=GroupRole.MEMBER, nullable=False),
     Column('joined_at', DateTime(timezone=True), server_default=func.now(), nullable=False),
     Column('last_activity', DateTime(timezone=True), server_default=func.now(), nullable=False),
     Column('is_active', Boolean, default=True, nullable=False),
@@ -79,7 +79,7 @@ class Group(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
-    type = Column(Enum(GroupType), default=GroupType.PUBLIC, nullable=False)
+    type = Column(Enum(GroupType, values_callable=lambda obj: [e.value for e in obj]), default=GroupType.PUBLIC, nullable=False)
     
     # Paramètres du groupe
     is_active = Column(Boolean, default=True, nullable=False)
@@ -123,7 +123,7 @@ class Post(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     title = Column(String(200), nullable=True)
     content = Column(Text, nullable=False)
-    type = Column(Enum(PostType), default=PostType.TEXT, nullable=False)
+    type = Column(Enum(PostType, values_callable=lambda obj: [e.value for e in obj]), default=PostType.TEXT, nullable=False)
     
     # Statut
     is_published = Column(Boolean, default=True, nullable=False)
@@ -208,7 +208,7 @@ class Reaction(Base):
     __tablename__ = "reactions"
     
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    type = Column(Enum(ReactionType), default=ReactionType.LIKE, nullable=False)
+    type = Column(Enum(ReactionType, values_callable=lambda obj: [e.value for e in obj]), default=ReactionType.LIKE, nullable=False)
     
     # Dates
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)

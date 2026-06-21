@@ -2,7 +2,7 @@
 Authentication services
 """
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, Union
 import uuid
 
@@ -220,9 +220,8 @@ class AuthService:
                 detail="Account is deactivated"
             )
         
-        # Update last login
-        user.last_login = datetime.utcnow()
-        user.failed_login_attempts = 0  # Reset failed attempts
+        user.last_login = datetime.now(timezone.utc)
+        user.failed_login_attempts = 0
         await db.commit()
         await db.refresh(user)
         
@@ -240,7 +239,7 @@ class AuthService:
             
             # Lock account after 5 failed attempts for 30 minutes
             if user.failed_login_attempts >= 5:
-                user.locked_until = datetime.utcnow() + timedelta(minutes=30)
+                user.locked_until = datetime.now(timezone.utc) + timedelta(minutes=30)
             
             await db.commit()
 
@@ -271,7 +270,7 @@ async def get_current_user(
         )
     
     # Check if account is locked
-    if user.locked_until and user.locked_until > datetime.utcnow():
+    if user.locked_until and user.locked_until > datetime.now(timezone.utc):
         raise HTTPException(
             status_code=status.HTTP_423_LOCKED,
             detail="Account is temporarily locked due to failed login attempts"

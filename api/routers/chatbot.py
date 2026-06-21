@@ -114,25 +114,27 @@ async def get_conversation_detail(
     )
 
 
+class MessageInput(BaseModel):
+    content: str
+    provider: Optional[str] = "demo"
+
+
 @router.post("/conversations/{conversation_id}/messages", response_model=ChatResponse)
 async def send_conversation_message(
     conversation_id: str,
-    content: str = Form(...),
-    provider: Optional[str] = Form(None),
-    files: Optional[List[UploadFile]] = File(None),
+    body: MessageInput,
     current_user: User = Depends(get_current_verified_user)
 ):
-    """Envoie un message dans une conversation spécifique (supporte FormData/Upload)"""
-    # Si un provider est spécifié, on bascule temporairement
-    if provider:
-        allowed = {"kimi", "deepseek", "openai", "demo"}
-        if provider in allowed:
-            _get_chatbot().switch_provider(provider)
+    """Envoie un message dans une conversation (JSON body)"""
+    if conversation_id in ("null", "undefined", ""):
+        conversation_id = "default"
 
-    # Note: On ignore les fichiers pour l'instant dans le chatbot de base, 
-    # mais on pourrait les traiter ici (OCR, etc.)
-    
-    chat_message = ChatMessage(message=content)
+    if body.provider:
+        allowed = {"kimi", "deepseek", "openai", "demo"}
+        if body.provider in allowed:
+            _get_chatbot().switch_provider(body.provider)
+
+    chat_message = ChatMessage(message=body.content)
     return await chat_with_agribot(chat_message, current_user)
 
 

@@ -42,6 +42,10 @@ class User(Base):
     bio = Column(Text, nullable=True)
     avatar_url = Column(String(500), nullable=True)
     cover_url = Column(String(500), nullable=True)
+    # Professional profile (from registration form)
+    sector = Column(String(50), nullable=True)
+    profile_role = Column(String(50), nullable=True)
+    newsletter = Column(Boolean, server_default="false", default=False, nullable=False)
     
     # Preferences
     language = Column(String(10), default="fr", nullable=False)

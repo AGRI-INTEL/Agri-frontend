@@ -5,7 +5,7 @@ Service complet pour gérer les alertes temps réel avec multi-canaux
 
 import asyncio
 import json
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import List, Dict, Any, Optional, Union
 from enum import Enum
 
@@ -377,7 +377,7 @@ class AlertService:
                     crop_id=crop_id,
                     user_id=user_id,
                     data_source=details or {},
-                    expires_at=expires_at or datetime.now() + timedelta(hours=24)
+                    expires_at=expires_at or datetime.now(timezone.utc) + timedelta(hours=24)
                 )
                 
                 db.add(alert)
@@ -528,7 +528,7 @@ class AlertService:
                 query = select(Alert).where(
                     and_(
                         Alert.is_active == True,
-                        Alert.expires_at > datetime.now()
+                        Alert.expires_at > datetime.now(timezone.utc)
                     )
                 )
                 

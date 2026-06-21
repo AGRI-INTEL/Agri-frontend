@@ -52,7 +52,7 @@ class Settings(BaseSettings):
     # JWT Settings
     JWT_SECRET_KEY: str = Field(default="CHANGE_ME_openssl_rand_hex_64")
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # Security
@@ -84,7 +84,10 @@ class Settings(BaseSettings):
     BACKEND_CORS_ORIGINS: List[str] = Field(
         default=[
             "http://localhost:3000",
-            "http://localhost:8000",
+            "http://localhost:8001",
+            "http://127.0.0.1:3000",
+            "http://127.0.0.1:8001",
+            "https://agriintel360.lsgrouptogo.com",
         ]
     )
 

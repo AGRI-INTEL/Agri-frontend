@@ -21,6 +21,13 @@ class UserCreate(BaseModel):
     organization: Optional[str] = Field(None, max_length=255)
     country: Optional[str] = Field(None, max_length=100)
     language: str = Field(default="fr", pattern=r"^(fr|en|pt)$")
+    # Professional profile
+    sector: Optional[str] = Field(None, max_length=50)
+    profile_role: Optional[str] = Field(None, max_length=50)
+    timezone: str = Field(default="Africa/Dakar", max_length=50)
+    newsletter: bool = False
+
+    model_config = {"extra": "ignore"}
 
 
 class UserUpdate(BaseModel):
@@ -53,6 +60,10 @@ class UserResponse(BaseModel):
     language: str
     timezone: str
     theme: str
+    # Professional profile
+    sector: Optional[str] = None
+    profile_role: Optional[str] = None
+    newsletter: bool = False
     created_at: datetime
     updated_at: datetime
     last_login: Optional[datetime] = None

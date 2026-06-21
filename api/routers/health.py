@@ -18,7 +18,7 @@ settings = get_settings()
 health_router = APIRouter(tags=["Health"])
 
 
-@health_router.get("/health")
+@health_router.get("")
 async def health_check():
     """Basic health check"""
     return {
@@ -29,7 +29,7 @@ async def health_check():
     }
 
 
-@health_router.get("/health/detailed")
+@health_router.get("/detailed")
 async def detailed_health_check():
     """Detailed health check with database status"""
     db_status = await get_all_health_status()
@@ -66,7 +66,7 @@ async def detailed_health_check():
     }
 
 
-@health_router.get("/health/ready")
+@health_router.get("/ready")
 async def readiness_check():
     """Kubernetes readiness probe"""
     db_status = await get_all_health_status()
@@ -81,7 +81,7 @@ async def readiness_check():
         raise HTTPException(status_code=503, detail="Service not ready")
 
 
-@health_router.get("/health/live")
+@health_router.get("/live")
 async def liveness_check():
     """Kubernetes liveness probe"""
     return {"status": "alive", "timestamp": datetime.utcnow().isoformat()}

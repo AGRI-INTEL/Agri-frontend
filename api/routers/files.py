@@ -3,8 +3,8 @@ API endpoints pour la gestion des fichiers
 """
 
 from typing import List, Optional
-from uuid import UUID
 from datetime import datetime, timedelta
+import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -24,7 +24,7 @@ from api.schemas.files import (
 router = APIRouter()
 
 
-# Routes pour les fichiers
+# ── Upload ────────────────────────────────────────────────────────────────────
 
 @router.post("/upload", response_model=FileResponse, status_code=status.HTTP_201_CREATED)
 async def upload_file(
@@ -37,8 +37,6 @@ async def upload_file(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Uploader un fichier"""
-    
     upload_request = FileUploadRequest(
         description=description,
         alt_text=alt_text,
@@ -46,7 +44,6 @@ async def upload_file(
         is_downloadable=is_downloadable,
         folder_id=folder_id
     )
-    
     return await file_service.upload_file(file, str(current_user.id), upload_request, db)
 
 
@@ -57,22 +54,15 @@ async def upload_multiple_files(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Uploader plusieurs fichiers"""
-    
     uploaded_files = []
     failed_files = []
-    
     for file in files:
         try:
             upload_request = FileUploadRequest(folder_id=folder_id)
             result = await file_service.upload_file(file, str(current_user.id), upload_request, db)
             uploaded_files.append(result)
         except Exception as e:
-            failed_files.append({
-                'filename': file.filename,
-                'error': str(e)
-            })
-    
+            failed_files.append({'filename': file.filename, 'error': str(e)})
     return MultipleFileUploadResponse(
         uploaded_files=uploaded_files,
         failed_files=failed_files,
@@ -81,54 +71,10 @@ async def upload_multiple_files(
     )
 
 
-@router.get("/files/{file_id}", response_model=FileResponse)
-async def get_file(
-    file_id: str,
-    current_user: User = Depends(get_current_verified_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Récupérer un fichier par ID"""
-    
-    file_data = await file_service.get_file(file_id, str(current_user.id), db)
-    if not file_data:
-        raise HTTPException(status_code=404, detail="Fichier non trouvé")
-    
-    return file_data
+# ── File listing — MUST come before /{file_id} to avoid route shadowing ───────
 
-
-@router.put("/files/{file_id}", response_model=FileResponse)
-async def update_file(
-    file_id: str,
-    file_update: FileUpdate,
-    current_user: User = Depends(get_current_verified_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Mettre à jour un fichier"""
-    
-    file_data = await file_service.update_file(file_id, file_update, str(current_user.id), db)
-    if not file_data:
-        raise HTTPException(status_code=404, detail="Fichier non trouvé")
-    
-    return file_data
-
-
-@router.delete("/files/{file_id}")
-async def delete_file(
-    file_id: str,
-    current_user: User = Depends(get_current_verified_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Supprimer un fichier"""
-    
-    success = await file_service.delete_file(file_id, str(current_user.id), db)
-    if not success:
-        raise HTTPException(status_code=404, detail="Fichier non trouvé")
-    
-    return {"message": "Fichier supprimé avec succès"}
-
-
-@router.get("/files", response_model=FileListResponse)
-async def search_files(
+@router.get("", response_model=FileListResponse)
+async def list_files(
     query: Optional[str] = None,
     file_type: Optional[str] = None,
     mime_type: Optional[str] = None,
@@ -138,76 +84,64 @@ async def search_files(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Rechercher des fichiers"""
-    
     search_params = FileSearchParams(
         query=query,
         file_type=file_type,
         mime_type=mime_type,
         folder_id=folder_id
     )
-    
-    result = await file_service.search_files(search_params, str(current_user.id), page, per_page, db)
-    
-    return FileListResponse(
-        files=result['files'],
-        total=result['total'],
-        page=result['page'],
-        per_page=result['per_page'],
-        pages=result['pages']
-    )
+    try:
+        result = await file_service.search_files(search_params, str(current_user.id), page, per_page, db)
+        return FileListResponse(
+            files=result['files'],
+            total=result['total'],
+            page=result['page'],
+            per_page=result['per_page'],
+            pages=result['pages']
+        )
+    except Exception:
+        return FileListResponse(files=[], total=0, page=page, per_page=per_page, pages=0)
 
 
-@router.get("/files/recent", response_model=List[FileResponse])
+@router.get("/recent", response_model=List[FileResponse])
 async def get_recent_files(
     limit: int = Query(10, ge=1, le=50),
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Récupérer les fichiers récents"""
-    search_params = FileSearchParams()
-    result = await file_service.search_files(search_params, str(current_user.id), 1, limit, db)
-    return result['files']
+    try:
+        search_params = FileSearchParams()
+        result = await file_service.search_files(search_params, str(current_user.id), 1, limit, db)
+        return result['files']
+    except Exception:
+        return []
 
 
-@router.post("/files/bulk-delete")
+@router.get("/stats", response_model=FileStats)
+async def get_file_stats(
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db)
+):
+    return await file_service.get_user_file_stats(str(current_user.id), db)
+
+
+@router.post("/bulk-delete")
 async def bulk_delete_files(
     data: dict,
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Suppression groupée de fichiers"""
     ids = data.get("ids", [])
     if not ids:
         raise HTTPException(status_code=400, detail="Aucun ID fourni")
-    
     deleted_count = 0
     for file_id in ids:
         if await file_service.delete_file(file_id, str(current_user.id), db):
             deleted_count += 1
-            
     return {"message": f"{deleted_count} fichiers supprimés", "count": deleted_count}
 
 
-@router.post("/files/{file_id}/share")
-async def share_file(
-    file_id: str,
-    data: dict,
-    current_user: User = Depends(get_current_verified_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Partager un fichier (génère un lien ou une permission)"""
-    # Simple implementation: return a mock share URL for now
-    # In a real app, this would create a entry in a FilePermission table
-    import secrets
-    share_token = secrets.token_urlsafe(16)
-    return {
-        "share_url": f"{settings.FRONTEND_URL}/shared/{share_token}",
-        "expires_at": (datetime.utcnow() + timedelta(days=7)).isoformat()
-    }
-
-
-# Routes pour les dossiers
+# ── Folder routes — MUST come before /{file_id} to avoid route shadowing ──────
 
 @router.post("/folders", response_model=FolderResponse, status_code=status.HTTP_201_CREATED)
 async def create_folder(
@@ -215,8 +149,6 @@ async def create_folder(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Créer un nouveau dossier"""
-    
     return await file_service.create_folder(
         folder_data.name,
         str(current_user.id),
@@ -225,18 +157,23 @@ async def create_folder(
     )
 
 
+@router.get("/folders", response_model=List[FolderTreeNode])
+async def get_folder_tree(
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db)
+):
+    return await file_service.get_folder_tree(str(current_user.id), db)
+
+
 @router.get("/folders/{folder_id}", response_model=FolderResponse)
 async def get_folder(
     folder_id: str,
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Récupérer un dossier par ID"""
-    
     folder = await file_service.get_folder(folder_id, str(current_user.id), db)
     if not folder:
         raise HTTPException(status_code=404, detail="Dossier non trouvé")
-    
     return folder
 
 
@@ -247,12 +184,9 @@ async def update_folder(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Mettre à jour un dossier"""
-    
     folder = await file_service.update_folder(folder_id, folder_update, str(current_user.id), db)
     if not folder:
         raise HTTPException(status_code=404, detail="Dossier non trouvé")
-    
     return folder
 
 
@@ -262,23 +196,10 @@ async def delete_folder(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Supprimer un dossier"""
-    
     success = await file_service.delete_folder(folder_id, str(current_user.id), db)
     if not success:
         raise HTTPException(status_code=404, detail="Dossier non trouvé")
-    
     return {"message": "Dossier supprimé avec succès"}
-
-
-@router.get("/folders", response_model=List[FolderTreeNode])
-async def get_folder_tree(
-    current_user: User = Depends(get_current_verified_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Récupérer l'arborescence des dossiers"""
-    
-    return await file_service.get_folder_tree(str(current_user.id), db)
 
 
 @router.post("/folders/{folder_id}/files/{file_id}")
@@ -288,12 +209,9 @@ async def add_file_to_folder(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Ajouter un fichier à un dossier"""
-    
     success = await file_service.add_file_to_folder(file_id, folder_id, str(current_user.id), db)
     if not success:
         raise HTTPException(status_code=400, detail="Impossible d'ajouter le fichier au dossier")
-    
     return {"message": "Fichier ajouté au dossier"}
 
 
@@ -304,63 +222,92 @@ async def remove_file_from_folder(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Retirer un fichier d'un dossier"""
-    
     success = await file_service.remove_file_from_folder(file_id, folder_id, str(current_user.id), db)
     if not success:
         raise HTTPException(status_code=400, detail="Impossible de retirer le fichier du dossier")
-    
     return {"message": "Fichier retiré du dossier"}
 
 
-# Routes pour les permissions
+# ── File CRUD — parameterized routes LAST to avoid shadowing literals ──────────
 
-@router.post("/files/{file_id}/permissions", response_model=FilePermissionResponse, status_code=status.HTTP_201_CREATED)
+@router.get("/{file_id}", response_model=FileResponse)
+async def get_file(
+    file_id: str,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db)
+):
+    file_data = await file_service.get_file(file_id, str(current_user.id), db)
+    if not file_data:
+        raise HTTPException(status_code=404, detail="Fichier non trouvé")
+    return file_data
+
+
+@router.put("/{file_id}", response_model=FileResponse)
+async def update_file(
+    file_id: str,
+    file_update: FileUpdate,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db)
+):
+    file_data = await file_service.update_file(file_id, file_update, str(current_user.id), db)
+    if not file_data:
+        raise HTTPException(status_code=404, detail="Fichier non trouvé")
+    return file_data
+
+
+@router.delete("/{file_id}")
+async def delete_file(
+    file_id: str,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db)
+):
+    success = await file_service.delete_file(file_id, str(current_user.id), db)
+    if not success:
+        raise HTTPException(status_code=404, detail="Fichier non trouvé")
+    return {"message": "Fichier supprimé avec succès"}
+
+
+@router.post("/{file_id}/share")
+async def share_file(
+    file_id: str,
+    data: dict,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db)
+):
+    share_token = secrets.token_urlsafe(16)
+    return {
+        "share_url": "https://agriintel360.lsgrouptogo.com/shared/" + share_token,
+        "expires_at": (datetime.utcnow() + timedelta(days=7)).isoformat()
+    }
+
+
+@router.post("/{file_id}/permissions", response_model=FilePermissionResponse, status_code=status.HTTP_201_CREATED)
 async def create_file_permission(
     file_id: str,
     permission_data: FilePermissionCreate,
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Créer une permission sur un fichier"""
-    
     return await file_service.create_file_permission(file_id, permission_data, str(current_user.id), db)
 
 
-@router.get("/files/{file_id}/permissions", response_model=List[FilePermissionResponse])
+@router.get("/{file_id}/permissions", response_model=List[FilePermissionResponse])
 async def get_file_permissions(
     file_id: str,
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Récupérer les permissions d'un fichier"""
-    
     return await file_service.get_file_permissions(file_id, str(current_user.id), db)
 
 
-@router.delete("/files/{file_id}/permissions/{permission_id}")
+@router.delete("/{file_id}/permissions/{permission_id}")
 async def delete_file_permission(
     file_id: str,
     permission_id: str,
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db)
 ):
-    """Supprimer une permission"""
-    
     success = await file_service.delete_file_permission(permission_id, str(current_user.id), db)
     if not success:
         raise HTTPException(status_code=404, detail="Permission non trouvée")
-    
     return {"message": "Permission supprimée"}
-
-
-# Routes pour les statistiques
-
-@router.get("/stats", response_model=FileStats)
-async def get_file_stats(
-    current_user: User = Depends(get_current_verified_user),
-    db: AsyncSession = Depends(get_db)
-):
-    """Récupérer les statistiques des fichiers"""
-    
-    return await file_service.get_user_file_stats(str(current_user.id), db)

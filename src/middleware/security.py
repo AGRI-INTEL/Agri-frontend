@@ -59,7 +59,7 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 class RateLimitMiddleware(BaseHTTPMiddleware):
     """Simple rate limiting middleware"""
 
-    def __init__(self, app, requests_per_minute: int = 60):
+    def __init__(self, app, requests_per_minute: int = 300):
         super().__init__(app)
         self.requests_per_minute = requests_per_minute
         self.clients = {}
@@ -97,13 +97,19 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
             if current_time - req_time < 60
         ]
 
-        # Check rate limit
+        # Check rate limit — return JSONResponse (NOT raise HTTPException) to avoid
+        # exception propagation through BaseHTTPMiddleware which can crash uvicorn
         if len(self.clients[client_ip]) >= self.requests_per_minute:
-            from fastapi import HTTPException, status
+            from starlette.responses import JSONResponse
 
-            raise HTTPException(
-                status_code=status.HTTP_429_TOO_MANY_REQUESTS,
-                detail="Too many requests. Please try again later.",
+            return JSONResponse(
+                {"detail": "Too many requests. Please try again later."},
+                status_code=429,
+                headers={
+                    "X-RateLimit-Limit": str(self.requests_per_minute),
+                    "X-RateLimit-Reset": str(int(current_time + 60)),
+                    "Retry-After": "60",
+                },
             )
 
         # Add current request

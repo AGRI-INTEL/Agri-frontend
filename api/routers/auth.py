@@ -913,12 +913,31 @@ async def oauth_microsoft_callback(request: Request, db: AsyncSession = Depends(
         token = await oauth.microsoft.authorize_access_token(request)
         user_info = token.get("userinfo") or await oauth.microsoft.userinfo(token=token)
     except Exception as e:
-        raise HTTPException(status_code=400, detail=f"Erreur OAuth Microsoft: {e}")
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=f"{_settings.FRONTEND_URL}/login?error={url_encode(str(e))}")
 
     email = user_info.get("email") or user_info.get("mail") or user_info.get("userPrincipalName")
     if not email:
-        raise HTTPException(status_code=400, detail="Email non fourni par Microsoft")
+        from fastapi.responses import RedirectResponse
+        return RedirectResponse(url=f"{_settings.FRONTEND_URL}/login?error=Email+non+fourni")
 
     name = user_info.get("name") or user_info.get("displayName") or email.split("@")[0]
     user = await _oauth_login_or_create(db, email, {"name": name}, "microsoft")
-    return _oauth_token_response(user)
+    response_data = _oauth_token_response(user)
+    
+    # Redirect to frontend callback page with tokens
+    from fastapi.responses import RedirectResponse
+    import json
+    token_json = json.dumps({
+        "access_token": response_data["access_token"],
+        "refresh_token": response_data["refresh_token"],
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "username": user.username,
+            "full_name": user.full_name
+        }
+    })
+    import base64
+    encoded_token = base64.b64encode(token_json.encode()).decode()
+    return RedirectResponse(url=f"{_settings.FRONTEND_URL}/auth/callback?data={encoded_token}")

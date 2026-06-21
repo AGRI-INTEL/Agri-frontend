@@ -2,11 +2,12 @@
 Redis services for caching and blacklisting
 """
 
+import logging
 from datetime import timedelta
-from typing import Optional
 
 from config.config import get_settings
 
+logger = logging.getLogger(__name__)
 settings = get_settings()
 
 _redis_pool = None
@@ -17,20 +18,36 @@ async def get_redis():
     if _redis_pool is None:
         if not settings.REDIS_URL:
             return None
-        import redis.asyncio as redis
-        _redis_pool = redis.from_url(settings.REDIS_URL, encoding="utf-8", decode_responses=True)
+        try:
+            import redis.asyncio as redis
+            _redis_pool = redis.from_url(
+                settings.REDIS_URL, encoding="utf-8", decode_responses=True
+            )
+            # Verify connection works
+            await _redis_pool.ping()
+        except Exception as e:
+            logger.warning("Redis unavailable (%s) — token blacklisting disabled", e)
+            _redis_pool = None
+            return None
     return _redis_pool
 
 
 async def add_token_to_blacklist(token: str, expires_delta: timedelta):
-    pool = await get_redis()
-    if pool is None:
-        return
-    await pool.setex(f"blacklist:{token}", expires_delta, 1)
+    try:
+        pool = await get_redis()
+        if pool is None:
+            return
+        await pool.setex(f"blacklist:{token}", expires_delta, 1)
+    except Exception as e:
+        logger.warning("Redis add_blacklist failed: %s", e)
 
 
 async def is_token_blacklisted(token: str) -> bool:
-    pool = await get_redis()
-    if pool is None:
+    try:
+        pool = await get_redis()
+        if pool is None:
+            return False
+        return bool(await pool.exists(f"blacklist:{token}"))
+    except Exception as e:
+        logger.warning("Redis is_blacklisted failed: %s", e)
         return False
-    return await pool.exists(f"blacklist:{token}")
