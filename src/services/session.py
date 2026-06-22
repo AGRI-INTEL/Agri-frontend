@@ -4,7 +4,7 @@ Session management services using Redis (with fallback if Redis unavailable)
 
 import redis.asyncio as redis
 import json
-from datetime import timedelta, datetime
+from datetime import timedelta, datetime, timezone
 from typing import Optional
 
 from config.config import get_settings
@@ -41,7 +41,7 @@ class SessionService:
                 "user_id": user_id,
                 "user_agent": user_agent,
                 "ip_address": ip_address,
-                "created_at": datetime.utcnow().isoformat()
+                "created_at": datetime.now(timezone.utc).isoformat()
             }
             await self.redis_client.set(session_id, json.dumps(session_data), ex=timedelta(days=7))
             return session_id

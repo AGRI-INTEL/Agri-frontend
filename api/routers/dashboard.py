@@ -3,7 +3,7 @@ Dashboard API endpoints
 """
 
 from typing import List, Optional, Any, Dict
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -284,7 +284,7 @@ async def get_weather_chart_data(
     from datetime import timedelta
     from api.models.sql.agricultural import StagingWeather
     days = {"1M": 30, "3M": 90, "6M": 180, "1Y": 365}.get(period, 30)
-    since = datetime.utcnow() - timedelta(days=days)
+    since = datetime.now(timezone.utc) - timedelta(days=days)
 
     try:
         query = select(StagingWeather).where(StagingWeather.date >= since).order_by(StagingWeather.date)
@@ -309,7 +309,7 @@ async def get_weather_chart_data(
     from datetime import timedelta
     data = []
     for i in range(min(days, 30)):
-        d = datetime.utcnow() - timedelta(days=days - i)
+        d = datetime.now(timezone.utc) - timedelta(days=days - i)
         data.append({
             "date": d.strftime("%Y-%m-%d"),
             "temperature": round(26 + (i % 5) * 0.8, 1),

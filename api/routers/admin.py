@@ -1,7 +1,7 @@
 """Admin panel endpoints"""
 
 import uuid
-from datetime import datetime
+from datetime import datetime, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from pydantic import BaseModel
@@ -196,7 +196,7 @@ async def admin_stats(
             "system": {
                 "version": "1.0.0",
                 "environment": "development",
-                "timestamp": datetime.utcnow().isoformat(),
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             },
         }
     except Exception as e:
@@ -221,7 +221,7 @@ async def get_admin_activity(
             "username": current_user.username,
             "action": "LOGIN",
             "resource": "AUTH",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
             "ip_address": "127.0.0.1",
         }
     ]
@@ -238,7 +238,7 @@ async def list_admin_reports(
             "title": "Rapport Annuel 2023",
             "type": "ANNUAL",
             "format": "PDF",
-            "created_at": datetime.utcnow().isoformat(),
+            "created_at": datetime.now(timezone.utc).isoformat(),
             "status": "COMPLETED",
             "url": "/static/reports/annual_2023.pdf",
         }

@@ -10,6 +10,7 @@ import uuid
 import enum
 
 from api.models.sql.base import Base
+from sqlalchemy.dialects.postgresql import JSONB
 
 
 class UserRole(str, enum.Enum):
@@ -61,6 +62,11 @@ class User(Base):
     failed_login_attempts = Column(Integer, default=0, nullable=False)
     locked_until = Column(DateTime(timezone=True), nullable=True)
     password_changed_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
+
+    # Two-factor authentication (TOTP)
+    totp_secret = Column(String(64), nullable=True)
+    totp_enabled = Column(Boolean, server_default="false", default=False, nullable=False)
+    totp_backup_codes = Column(JSONB, nullable=True)
     
     # Relations pour les communautés et fichiers
     created_groups = relationship("Group", back_populates="creator")
@@ -70,6 +76,7 @@ class User(Base):
     reactions = relationship("Reaction", back_populates="user")
     uploaded_files = relationship("FileShare", back_populates="uploader")
     file_folders = relationship("FileFolder", back_populates="owner")
+    api_keys = relationship("ApiKey", back_populates="owner", cascade="all, delete-orphan")
     
     def __repr__(self):
         return f"<User {self.username}>"

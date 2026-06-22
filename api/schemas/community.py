@@ -14,6 +14,7 @@ class GroupBase(BaseModel):
     name: str = Field(..., min_length=3, max_length=100)
     description: Optional[str] = None
     type: str = "public"
+    sector: Optional[str] = "general"
     is_public: bool = True
     requires_approval: bool = False
     max_members: Optional[int] = 1000
@@ -294,6 +295,7 @@ class UserStats(BaseModel):
 class GroupSearchParams(BaseModel):
     query: Optional[str] = None
     type: Optional[str] = None
+    sector: Optional[str] = None
     tags: Optional[List[str]] = None
     location: Optional[str] = None
     min_members: Optional[int] = None

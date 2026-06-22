@@ -124,7 +124,9 @@ async def _run_alembic_upgrade() -> None:
 
         cfg = AlembicConfig("alembic.ini")
         cfg.set_main_option("script_location", "migrations")
-        cfg.set_main_option("sqlalchemy.url", settings.database_url_sync)
+        # configparser treats % as an interpolation prefix; escape it so literal
+        # percent-encoded chars in the password (e.g. %3F, %24) are preserved.
+        cfg.set_main_option("sqlalchemy.url", settings.database_url_sync.replace("%", "%%"))
 
         loop = asyncio.get_event_loop()
         await loop.run_in_executor(None, command.upgrade, cfg, "head")
@@ -193,15 +195,17 @@ async def create_db_and_tables():
                 "⚠️ MongoDB is disabled or no URL configured; skipping MongoDB initialization."
             )
 
-        # Initialize Redis
+        # Initialize Redis (non-fatal — app runs without Redis)
         if settings.REDIS_URL:
-            redis_client = aioredis.from_url(
-                settings.REDIS_URL, encoding="utf-8", decode_responses=True
-            )
-
-            # Test Redis connection
-            await redis_client.ping()
-            print("✅ Redis connected successfully")
+            try:
+                redis_client = aioredis.from_url(
+                    settings.REDIS_URL, encoding="utf-8", decode_responses=True
+                )
+                await redis_client.ping()
+                print("✅ Redis connected successfully")
+            except Exception as redis_exc:
+                print(f"⚠️ Redis initialization skipped or failed: {redis_exc}")
+                redis_client = None
         else:
             print("⚠️ Redis URL not configured; continuing without Redis.")
 
@@ -209,7 +213,7 @@ async def create_db_and_tables():
         if settings.ELASTICSEARCH_ENABLED and settings.ELASTICSEARCH_URL:
             try:
                 es_client = AsyncElasticsearch(
-                    [settings.ELASTICSEARCH_URL], verify_certs=False
+                    [settings.ELASTICSEARCH_URL]
                 )
 
                 if await es_client.ping():

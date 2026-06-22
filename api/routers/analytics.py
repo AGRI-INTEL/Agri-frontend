@@ -1,6 +1,6 @@
 """Analytics API endpoints with rich mock data"""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func
@@ -20,7 +20,7 @@ MODEL_SUPPORTS_IMAGES = False
 
 
 def _generate_timeseries(days: int, base: float, variance: float, trend: float = 0):
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     return [
         {
             "date": (now - timedelta(days=days - i)).strftime("%Y-%m-%d"),
@@ -64,7 +64,7 @@ async def get_analytics_overview(
 
     alerts_q = await db.execute(
         select(sa_func.count(Alert.id)).where(
-            Alert.created_at >= datetime.utcnow() - timedelta(days=7)
+            Alert.created_at >= datetime.now(timezone.utc) - timedelta(days=7)
         )
     )
     alerts_7d = alerts_q.scalar() or 0
@@ -187,7 +187,7 @@ async def get_price_trends(
     current_user: User = Depends(get_current_verified_user),
 ):
     """Tendances des prix"""
-    end_date = datetime.utcnow()
+    end_date = datetime.now(timezone.utc)
     start_map = {"1M": 30, "3M": 90, "6M": 180, "1Y": 365}
     days = start_map.get(period, 365)
 
@@ -233,7 +233,7 @@ async def get_weather_trends(
     days = {"1M": 30, "3M": 90, "6M": 180, "1Y": 365}
     d = days.get(period, 365)
 
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     temps = []
     precip = []
     for i in range(min(d, 60)):
@@ -360,7 +360,7 @@ async def get_production_analytics(
         pass
 
     # Fallback
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     dummy = []
     for i in range(12):
         m = now.month - i

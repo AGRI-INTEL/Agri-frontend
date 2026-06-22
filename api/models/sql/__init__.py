@@ -21,6 +21,7 @@ from api.models.sql.agricultural import (
     StagingProduction, StagingWeather, StagingEconomic, MalaboYieldIndicator,
     Country, Crop, Production, Alert
 )
+from api.models.sql.api_keys import ApiKey
 from api.models.sql.indicators import (
     IndicateurValeur, IndicateurVegetal, IndicateurAnimal, IndicateurHalieutique,
     IndicateurForestier, DefinitionIndicateur, SeuilIndicateur, VueIndicateursAgregees

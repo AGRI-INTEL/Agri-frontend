@@ -3,7 +3,7 @@ Health check endpoints
 """
 
 from fastapi import APIRouter, Depends
-from datetime import datetime
+from datetime import datetime, timezone
 try:
     import psutil
 except Exception:
@@ -23,7 +23,7 @@ async def health_check():
     """Basic health check"""
     return {
         "status": "healthy",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "service": settings.PROJECT_NAME,
         "version": settings.VERSION
     }
@@ -57,7 +57,7 @@ async def detailed_health_check():
     
     return {
         "status": "healthy" if all_healthy else "degraded",
-        "timestamp": datetime.utcnow().isoformat(),
+        "timestamp": datetime.now(timezone.utc).isoformat(),
         "service": settings.PROJECT_NAME,
         "version": settings.VERSION,
         "environment": settings.ENVIRONMENT,
@@ -84,4 +84,4 @@ async def readiness_check():
 @health_router.get("/live")
 async def liveness_check():
     """Kubernetes liveness probe"""
-    return {"status": "alive", "timestamp": datetime.utcnow().isoformat()}
+    return {"status": "alive", "timestamp": datetime.now(timezone.utc).isoformat()}

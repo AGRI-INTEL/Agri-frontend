@@ -5,7 +5,7 @@ Background tasks: alert checks, data aggregation, email sending, ML predictions
 
 import os
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from celery import Celery
 from celery.schedules import crontab
 
@@ -72,7 +72,7 @@ celery_app.conf.beat_schedule = {
 def debug_task(self):
     """Debug task to verify Celery is working"""
     logger.info(f"Debug task executed. Request: {self.request!r}")
-    return {"status": "ok", "timestamp": datetime.utcnow().isoformat()}
+    return {"status": "ok", "timestamp": datetime.now(timezone.utc).isoformat()}
 
 
 @celery_app.task(
@@ -152,7 +152,7 @@ def aggregate_indicators(self):
         result = {
             "status": "completed",
             "task": "aggregate_indicators",
-            "timestamp": datetime.utcnow().isoformat(),
+            "timestamp": datetime.now(timezone.utc).isoformat(),
         }
         logger.info("Daily indicator aggregation completed")
         return result

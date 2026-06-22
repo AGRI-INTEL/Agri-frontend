@@ -3,7 +3,7 @@ API Router pour les indicateurs agricoles — requêtes base de données
 """
 
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from collections import defaultdict
 import random
 
@@ -25,7 +25,7 @@ from api.models.sql.actors import Actor
 router = APIRouter()
 
 CURRENT_MODEL = "agri_indicators_v2"
-MODEL_SUPPORTS_IMAGES = False
+MODEL_SUPPORTS_IMAGES = True
 
 
 def _enum_to_display(val: str) -> str:
@@ -114,7 +114,7 @@ async def get_indicators_overview(
         {"status": "Inconnu", "count": unknown, "color": "#6B7280"},
     ]
 
-    thirty_days_ago = datetime.utcnow() - timedelta(days=30)
+    thirty_days_ago = datetime.now(timezone.utc) - timedelta(days=30)
     recent = (
         await db.scalar(
             select(func.count(IndicateurValeur.id)).where(
@@ -275,11 +275,24 @@ async def list_indicators(
                 "history": history,
                 "last_updated": record.updated_at.isoformat()
                 if record.updated_at
-                else datetime.utcnow().isoformat() + "Z",
+                else datetime.now(timezone.utc).isoformat() + "Z",
             }
         )
 
     return {"data": indicators_data, "count": len(indicators_data)}
+
+
+# ─── External Fetch ───────────────────────────────────────────────────────────
+
+
+@router.get("/external-fetch")
+async def fetch_external_indicators(
+    current_user: User = Depends(get_current_verified_user),
+):
+    """Récupère automatiquement les indicateurs depuis les APIs publiques (World Bank, FAO)"""
+    from src.services.indicators_fetch import fetch_all_external_indicators
+    result = await fetch_all_external_indicators()
+    return result
 
 
 # ─── Detail ───────────────────────────────────────────────────────────────────
@@ -379,7 +392,7 @@ async def get_indicator(
         "history": history,
         "last_updated": record.updated_at.isoformat()
         if record.updated_at
-        else datetime.utcnow().isoformat() + "Z",
+        else datetime.now(timezone.utc).isoformat() + "Z",
     }
 
 
@@ -466,30 +479,85 @@ async def upload_indicator_image(
     indicator_id: str = Form(default=""),
     current_user: User = Depends(get_current_verified_user),
 ):
-    """Upload d'image pour analyse d'indicateur visuel"""
-    if not MODEL_SUPPORTS_IMAGES:
-        raise HTTPException(
-            status_code=400,
-            detail={
-                "code": "IMAGE_NOT_SUPPORTED",
-                "message": f'Impossible de lire "{file.filename}" (ce modèle ne supporte pas les images). '
-                f'Le modèle "{CURRENT_MODEL}" est un modèle d\'indicateurs agricoles qui '
-                f"traite uniquement des données statistiques et numériques. "
-                f"Pour l'analyse d'images, utilisez plutôt l'assistant IA.",
-                "model": CURRENT_MODEL,
-                "supported_inputs": [
-                    "statistiques",
-                    "séries temporelles",
-                    "données par pays",
-                    "seuils",
-                ],
-            },
-        )
-    return {
-        "status": "processing",
-        "message": "Analyse d'image en cours...",
-        "file": file.filename,
-    }
+    """Analyse une image agricole via IA (vision)"""
+    from config.config import get_settings
+    import base64
+    import httpx
+
+    settings = get_settings()
+
+    # Read image bytes
+    content = await file.read()
+    if len(content) > 10 * 1024 * 1024:  # 10MB max
+        raise HTTPException(status_code=400, detail="Image trop grande (max 10MB)")
+
+    ext = (file.filename or "").rsplit(".", 1)[-1].lower()
+    mime = {"jpg": "image/jpeg", "jpeg": "image/jpeg", "png": "image/png", "webp": "image/webp", "gif": "image/gif"}.get(ext, "image/jpeg")
+    img_b64 = base64.b64encode(content).decode()
+
+    api_key = getattr(settings, "OPENROUTER_API_KEY", None) or getattr(settings, "OPENAI_API_KEY", None)
+
+    if api_key:
+        try:
+            has_openai_key = bool(getattr(settings, "OPENAI_API_KEY", None))
+            base_url = "https://api.openai.com/v1" if has_openai_key else "https://openrouter.ai/api/v1"
+            model = "gpt-4o-mini" if has_openai_key else "openai/gpt-4o-mini"
+
+            headers = {
+                "Authorization": f"Bearer {api_key}",
+                "Content-Type": "application/json",
+                "HTTP-Referer": "https://agriintel360.lsgrouptogo.com",
+                "X-Title": "AgriIntel360",
+            }
+
+            payload = {
+                "model": model,
+                "messages": [{
+                    "role": "user",
+                    "content": [
+                        {
+                            "type": "image_url",
+                            "image_url": {"url": f"data:{mime};base64,{img_b64}"}
+                        },
+                        {
+                            "type": "text",
+                            "text": "Tu es un expert agronome africain. Analyse cette image agricole et fournis: 1) Ce que tu vois (culture, animal, sol, équipement, etc.) 2) État de santé/qualité observé 3) Problèmes détectés (maladies, carences, parasites) 4) Recommandations pratiques 5) Score de santé global (0-100). Réponds en français avec des emojis pertinents."
+                        }
+                    ]
+                }],
+                "max_tokens": 800,
+            }
+
+            async with httpx.AsyncClient(timeout=30.0) as client:
+                resp = await client.post(f"{base_url}/chat/completions", headers=headers, json=payload)
+                resp.raise_for_status()
+                analysis_text = resp.json()["choices"][0]["message"]["content"]
+
+            return {
+                "status": "completed",
+                "filename": file.filename,
+                "indicator_id": indicator_id or None,
+                "analysis": analysis_text,
+                "model": model,
+                "ai_powered": True,
+            }
+        except Exception as e:
+            analysis_text = f"⚠️ Analyse IA temporairement indisponible ({str(e)[:50]}). Vérifiez la configuration."
+            return {
+                "status": "fallback",
+                "filename": file.filename,
+                "analysis": analysis_text,
+                "ai_powered": False,
+            }
+    else:
+        # Demo analysis without API key
+        return {
+            "status": "demo",
+            "filename": file.filename,
+            "indicator_id": indicator_id or None,
+            "analysis": "🌾 **Analyse visuelle (mode démo)**\n\nPour activer l'analyse IA complète, configurez OPENROUTER_API_KEY dans votre fichier .env.\n\nL'analyse visuelle peut détecter:\n- Maladies des cultures\n- Carences nutritionnelles\n- État du sol\n- Santé du bétail\n- Qualité des récoltes",
+            "ai_powered": False,
+        }
 
 
 # ─── Export ───────────────────────────────────────────────────────────────────

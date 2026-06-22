@@ -2,12 +2,14 @@
 API Router pour les acteurs agricoles — requêtes base de données
 """
 
-from typing import Optional, Any
+from typing import Optional, Any, List as Lst
 from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, case
 from sqlalchemy.orm import joinedload
 import random
+from pydantic import BaseModel as PydanticModel
+from typing import Optional as Opt
 
 from config.database import get_db
 from src.services.auth import get_current_verified_user
@@ -222,7 +224,78 @@ def _format_actor(a: Actor, countries: dict[str, str]) -> dict:
         "forestier_data": forestier_data,
         "created_at": a.created_at.isoformat() if a.created_at else "",
         "updated_at": a.updated_at.isoformat() if a.updated_at else "",
+        "latitude": a.latitude,
+        "longitude": a.longitude,
     }
+
+
+class ActorCreateBody(PydanticModel):
+    name: str
+    role: str = "producteur_individuel"
+    sector: str = "vegetal"
+    country: str = "Sénégal"
+    region: Opt[str] = None
+    city: Opt[str] = None
+    email: Opt[str] = None
+    phone: Opt[str] = None
+    latitude: Opt[float] = None
+    longitude: Opt[float] = None
+    # vegetal
+    superficie_totale_ha: Opt[float] = None
+    cultures_principales: Opt[Lst[str]] = None
+    acces_irrigation: Opt[bool] = False
+    nombre_parcelles: Opt[int] = 1
+    possede_tracteur: Opt[bool] = False
+    # animal
+    nombre_bovins: Opt[int] = 0
+    nombre_ovins: Opt[int] = 0
+    nombre_caprins: Opt[int] = 0
+    nombre_volailles: Opt[int] = 0
+    nombre_porcins: Opt[int] = 0
+    type_elevage: Opt[str] = None
+    acces_veterinaire: Opt[bool] = False
+    # halieutique
+    nombre_pirogues: Opt[int] = 0
+    possede_moteur: Opt[bool] = False
+    type_peche: Opt[str] = None
+    zone_peche_principale: Opt[str] = None
+    # forestier
+    type_exploitation: Opt[str] = None
+    produits_principaux: Opt[Lst[str]] = None
+    superficie_concession_ha: Opt[float] = None
+    certifie_durable: Opt[bool] = False
+
+
+class ActorUpdateBody(PydanticModel):
+    name: Opt[str] = None
+    role: Opt[str] = None
+    region: Opt[str] = None
+    city: Opt[str] = None
+    email: Opt[str] = None
+    phone: Opt[str] = None
+    is_active: Opt[bool] = None
+    latitude: Opt[float] = None
+    longitude: Opt[float] = None
+    superficie_totale_ha: Opt[float] = None
+    cultures_principales: Opt[Lst[str]] = None
+    acces_irrigation: Opt[bool] = None
+    nombre_parcelles: Opt[int] = None
+    possede_tracteur: Opt[bool] = None
+    nombre_bovins: Opt[int] = None
+    nombre_ovins: Opt[int] = None
+    nombre_caprins: Opt[int] = None
+    nombre_volailles: Opt[int] = None
+    nombre_porcins: Opt[int] = None
+    type_elevage: Opt[str] = None
+    acces_veterinaire: Opt[bool] = None
+    nombre_pirogues: Opt[int] = None
+    possede_moteur: Opt[bool] = None
+    type_peche: Opt[str] = None
+    zone_peche_principale: Opt[str] = None
+    type_exploitation: Opt[str] = None
+    produits_principaux: Opt[Lst[str]] = None
+    superficie_concession_ha: Opt[float] = None
+    certifie_durable: Opt[bool] = None
 
 
 @router.get("/overview")
@@ -446,6 +519,207 @@ async def get_actor_activity(
         "total_contacts": random.randint(5, 500),
         "trend": random.choice(["up", "down", "stable"]),
     }
+
+
+@router.post("/")
+async def create_actor(
+    body: ActorCreateBody,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _load_country_map(db)
+    try:
+        role_enum = ActorRoleEnum(body.role.lower())
+    except ValueError:
+        role_enum = ActorRoleEnum.PRODUCTEUR_INDIVIDUEL
+    try:
+        sector_enum = SousSecteursEnum(body.sector.lower())
+    except ValueError:
+        sector_enum = SousSecteursEnum.VEGETAL
+
+    actor = Actor(
+        nom=body.name,
+        sous_secteur=sector_enum,
+        role=role_enum,
+        pays=body.country,
+        region=body.region,
+        commune=body.city,
+        email=body.email,
+        telephone=body.phone,
+        latitude=body.latitude,
+        longitude=body.longitude,
+        is_active=True,
+        is_verified=False,
+    )
+    db.add(actor)
+    await db.flush()
+
+    if sector_enum == SousSecteursEnum.VEGETAL:
+        pv = ProducteurVegetal(
+            id=actor.id,
+            superficie_totale_ha=body.superficie_totale_ha,
+            cultures_principales=body.cultures_principales or [],
+            acces_irrigation=body.acces_irrigation or False,
+            nombre_parcelles=body.nombre_parcelles or 1,
+            possede_tracteur=body.possede_tracteur or False,
+        )
+        db.add(pv)
+    elif sector_enum == SousSecteursEnum.ANIMAL:
+        ea = EleveurAnimal(
+            id=actor.id,
+            nombre_bovins=body.nombre_bovins or 0,
+            nombre_ovins=body.nombre_ovins or 0,
+            nombre_caprins=body.nombre_caprins or 0,
+            nombre_volailles=body.nombre_volailles or 0,
+            nombre_porcins=body.nombre_porcins or 0,
+            type_elevage=body.type_elevage,
+            acces_veterinaire=body.acces_veterinaire or False,
+        )
+        db.add(ea)
+    elif sector_enum == SousSecteursEnum.HALIEUTIQUE:
+        ph = PecheurHalieutique(
+            id=actor.id,
+            nombre_pirogues=body.nombre_pirogues or 0,
+            possede_moteur=body.possede_moteur or False,
+            type_peche=body.type_peche,
+            zone_peche_principale=body.zone_peche_principale,
+        )
+        db.add(ph)
+    elif sector_enum == SousSecteursEnum.FORESTIER:
+        ef = ExploitantForestier(
+            id=actor.id,
+            type_exploitation=body.type_exploitation,
+            produits_principaux=body.produits_principaux or [],
+            superficie_concession_ha=body.superficie_concession_ha,
+            certifie_durable=body.certifie_durable or False,
+        )
+        db.add(ef)
+
+    await db.commit()
+    await db.refresh(actor)
+    await db.execute(
+        select(Actor).options(
+            joinedload(Actor.producteur_vegetal_profile),
+            joinedload(Actor.eleveur_animal_profile),
+            joinedload(Actor.pecheur_halieutique_profile),
+            joinedload(Actor.exploitant_forestier_profile),
+        ).where(Actor.id == actor.id)
+    )
+    result = await db.execute(
+        select(Actor).options(
+            joinedload(Actor.producteur_vegetal_profile),
+            joinedload(Actor.eleveur_animal_profile),
+            joinedload(Actor.pecheur_halieutique_profile),
+            joinedload(Actor.exploitant_forestier_profile),
+        ).where(Actor.id == actor.id)
+    )
+    actor = result.unique().scalar_one()
+    return _format_actor(actor, COUNTRY_NAME_TO_CODE)
+
+
+@router.put("/{actor_id}")
+async def update_actor(
+    actor_id: str,
+    body: ActorUpdateBody,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    await _load_country_map(db)
+    import uuid as _uuid
+    try:
+        uid = _uuid.UUID(actor_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Acteur non trouvé")
+
+    result = await db.execute(
+        select(Actor).options(
+            joinedload(Actor.producteur_vegetal_profile),
+            joinedload(Actor.eleveur_animal_profile),
+            joinedload(Actor.pecheur_halieutique_profile),
+            joinedload(Actor.exploitant_forestier_profile),
+        ).where(Actor.id == uid)
+    )
+    actor = result.unique().scalar_one_or_none()
+    if not actor:
+        raise HTTPException(status_code=404, detail="Acteur non trouvé")
+
+    if body.name is not None: actor.nom = body.name
+    if body.role is not None:
+        try: actor.role = ActorRoleEnum(body.role.lower())
+        except ValueError: pass
+    if body.region is not None: actor.region = body.region
+    if body.city is not None: actor.commune = body.city
+    if body.email is not None: actor.email = body.email
+    if body.phone is not None: actor.telephone = body.phone
+    if body.is_active is not None: actor.is_active = body.is_active
+    if body.latitude is not None: actor.latitude = body.latitude
+    if body.longitude is not None: actor.longitude = body.longitude
+
+    if actor.sous_secteur == SousSecteursEnum.VEGETAL and actor.producteur_vegetal_profile:
+        pv = actor.producteur_vegetal_profile
+        if body.superficie_totale_ha is not None: pv.superficie_totale_ha = body.superficie_totale_ha
+        if body.cultures_principales is not None: pv.cultures_principales = body.cultures_principales
+        if body.acces_irrigation is not None: pv.acces_irrigation = body.acces_irrigation
+        if body.nombre_parcelles is not None: pv.nombre_parcelles = body.nombre_parcelles
+        if body.possede_tracteur is not None: pv.possede_tracteur = body.possede_tracteur
+    elif actor.sous_secteur == SousSecteursEnum.ANIMAL and actor.eleveur_animal_profile:
+        ea = actor.eleveur_animal_profile
+        if body.nombre_bovins is not None: ea.nombre_bovins = body.nombre_bovins
+        if body.nombre_ovins is not None: ea.nombre_ovins = body.nombre_ovins
+        if body.nombre_caprins is not None: ea.nombre_caprins = body.nombre_caprins
+        if body.nombre_volailles is not None: ea.nombre_volailles = body.nombre_volailles
+        if body.nombre_porcins is not None: ea.nombre_porcins = body.nombre_porcins
+        if body.type_elevage is not None: ea.type_elevage = body.type_elevage
+        if body.acces_veterinaire is not None: ea.acces_veterinaire = body.acces_veterinaire
+    elif actor.sous_secteur == SousSecteursEnum.HALIEUTIQUE and actor.pecheur_halieutique_profile:
+        ph = actor.pecheur_halieutique_profile
+        if body.nombre_pirogues is not None: ph.nombre_pirogues = body.nombre_pirogues
+        if body.possede_moteur is not None: ph.possede_moteur = body.possede_moteur
+        if body.type_peche is not None: ph.type_peche = body.type_peche
+        if body.zone_peche_principale is not None: ph.zone_peche_principale = body.zone_peche_principale
+    elif actor.sous_secteur == SousSecteursEnum.FORESTIER and actor.exploitant_forestier_profile:
+        ef = actor.exploitant_forestier_profile
+        if body.type_exploitation is not None: ef.type_exploitation = body.type_exploitation
+        if body.produits_principaux is not None: ef.produits_principaux = body.produits_principaux
+        if body.superficie_concession_ha is not None: ef.superficie_concession_ha = body.superficie_concession_ha
+        if body.certifie_durable is not None: ef.certifie_durable = body.certifie_durable
+
+    await db.commit()
+    result2 = await db.execute(
+        select(Actor).options(
+            joinedload(Actor.producteur_vegetal_profile),
+            joinedload(Actor.eleveur_animal_profile),
+            joinedload(Actor.pecheur_halieutique_profile),
+            joinedload(Actor.exploitant_forestier_profile),
+        ).where(Actor.id == uid)
+    )
+    actor = result2.unique().scalar_one()
+    return _format_actor(actor, COUNTRY_NAME_TO_CODE)
+
+
+@router.delete("/{actor_id}")
+async def delete_actor(
+    actor_id: str,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    import uuid as _uuid
+    from sqlalchemy import text as _text
+    try:
+        uid = _uuid.UUID(actor_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Acteur non trouvé")
+    check = await db.execute(select(Actor.id).where(Actor.id == uid))
+    if not check.scalar_one_or_none():
+        raise HTTPException(status_code=404, detail="Acteur non trouvé")
+    uid_str = str(uid)
+    await db.execute(_text("DELETE FROM producteurs_vegetal WHERE id = :id"), {"id": uid_str})
+    await db.execute(_text("DELETE FROM eleveurs_animal WHERE id = :id"), {"id": uid_str})
+    await db.execute(_text("DELETE FROM pecheurs_halieutique WHERE id = :id"), {"id": uid_str})
+    await db.execute(_text("DELETE FROM exploitants_forestier WHERE id = :id"), {"id": uid_str})
+    await db.execute(_text("DELETE FROM actors WHERE id = :id"), {"id": uid_str})
+    await db.commit()
+    return {"message": "Acteur supprimé", "id": actor_id}
 
 
 @router.post("/upload-image")

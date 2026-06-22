@@ -3,7 +3,6 @@ API endpoints pour les communautés et groupes
 """
 
 from typing import List, Optional, Any, Dict
-from uuid import UUID
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -34,54 +33,79 @@ from api.schemas.community import (
 router = APIRouter()
 
 
-# Routes pour les groupes
-
+# ── Statistiques & Tendances ───────────────────────────────────────────────────
 
 @router.get("/stats")
 async def get_community_stats(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Statistiques globales de la communauté"""
-    return {
-        "total_groups": 15,
-        "active_members": 450,
-        "total_discussions": 1200,
-        "growth_percent": 12,
-    }
+    return await community_service.get_community_stats(db)
 
 
 @router.get("/trending")
 async def get_trending_groups(
+    limit: int = Query(10, ge=1, le=20),
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Groupes les plus actifs du moment"""
-    return [
-        {
-            "id": "g1",
-            "name": "Producteurs de Maïs",
-            "members_count": 120,
-            "growth_percent": 85,
-        },
-        {
-            "id": "g2",
-            "name": "Élevage Durable",
-            "members_count": 85,
-            "growth_percent": 70,
-        },
-    ]
+    return await community_service.get_trending_groups(limit, db)
 
 
-@router.post(
-    "/groups", response_model=GroupResponse, status_code=status.HTTP_201_CREATED
-)
+@router.get("/trending-posts")
+async def get_trending_posts(
+    limit: int = Query(10, ge=1, le=20),
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    return await community_service.get_trending_posts(limit, db)
+
+
+@router.get("/posts/public")
+async def get_public_posts(
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=50),
+    search: Optional[str] = None,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Feed public de toutes les discussions des groupes publics"""
+    return await community_service.get_public_posts(page, per_page, search, db)
+
+
+# ── Groupes ────────────────────────────────────────────────────────────────────
+
+@router.get("/groups", response_model=GroupListResponse)
+async def search_groups(
+    search: Optional[str] = None,
+    type: Optional[str] = None,
+    sector: Optional[str] = None,
+    location: Optional[str] = None,
+    sort: Optional[str] = "recent",
+    page: int = Query(1, ge=1),
+    per_page: int = Query(20, ge=1, le=100),
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    search_params = GroupSearchParams(query=search, type=type, sector=sector, location=location)
+    result = await community_service.search_groups(
+        search_params, str(current_user.id), page, per_page, db, sort=sort
+    )
+    return GroupListResponse(
+        groups=result["groups"],
+        total=result["total"],
+        page=result["page"],
+        per_page=result["per_page"],
+        pages=result["pages"],
+    )
+
+
+@router.post("/groups", response_model=GroupResponse, status_code=status.HTTP_201_CREATED)
 async def create_group(
     group_data: GroupCreate,
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Créer un nouveau groupe"""
     return await community_service.create_group(group_data, str(current_user.id), db)
 
 
@@ -91,7 +115,6 @@ async def get_group(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Récupérer un groupe par ID"""
     group = await community_service.get_group(group_id, str(current_user.id), db)
     if not group:
         raise HTTPException(status_code=404, detail="Groupe non trouvé")
@@ -105,7 +128,6 @@ async def update_group(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Mettre à jour un groupe"""
     group = await community_service.update_group(
         group_id, group_update, str(current_user.id), db
     )
@@ -121,7 +143,6 @@ async def join_group(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Rejoindre un groupe"""
     return await community_service.join_group(
         group_id, str(current_user.id), message, db
     )
@@ -133,7 +154,6 @@ async def leave_group(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Quitter un groupe"""
     success = await community_service.leave_group(group_id, str(current_user.id), db)
     if not success:
         raise HTTPException(status_code=400, detail="Impossible de quitter le groupe")
@@ -146,37 +166,35 @@ async def get_group_members(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Récupérer les membres d'un groupe"""
     return await community_service.get_group_members(group_id, db)
 
 
-@router.get("/groups", response_model=GroupListResponse)
-async def search_groups(
-    query: Optional[str] = None,
-    type: Optional[str] = None,
-    location: Optional[str] = None,
-    page: int = Query(1, ge=1),
-    per_page: int = Query(20, ge=1, le=100),
+# ── Messages de groupe (Chat) ──────────────────────────────────────────────────
+
+@router.get("/groups/{group_id}/messages")
+async def get_group_messages(
+    group_id: str,
+    limit: int = Query(50, ge=1, le=100),
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Rechercher des groupes"""
-    search_params = GroupSearchParams(query=query, type=type, location=location)
-    result = await community_service.search_groups(
-        search_params, str(current_user.id), page, per_page, db
-    )
-
-    return GroupListResponse(
-        groups=result["groups"],
-        total=result["total"],
-        page=result["page"],
-        per_page=result["per_page"],
-        pages=result["pages"],
-    )
+    return await community_service.get_group_messages(group_id, limit, str(current_user.id), db)
 
 
-# Routes pour les publications
+@router.post("/groups/{group_id}/messages")
+async def send_group_message(
+    group_id: str,
+    data: dict,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    content = data.get("content", "").strip()
+    if not content:
+        raise HTTPException(status_code=400, detail="Contenu requis")
+    return await community_service.send_group_message(group_id, str(current_user.id), content, db)
 
+
+# ── Publications ───────────────────────────────────────────────────────────────
 
 @router.post("/posts", response_model=PostResponse, status_code=status.HTTP_201_CREATED)
 async def create_post(
@@ -184,7 +202,6 @@ async def create_post(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Créer une nouvelle publication"""
     return await community_service.create_post(post_data, str(current_user.id), db)
 
 
@@ -196,7 +213,6 @@ async def get_group_posts(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Récupérer les posts d'un groupe"""
     return await community_service.get_posts(
         group_id, str(current_user.id), page, per_page, db
     )
@@ -208,7 +224,6 @@ async def get_post(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Récupérer un post par ID"""
     post = await community_service.get_post(post_id, str(current_user.id), db)
     if not post:
         raise HTTPException(status_code=404, detail="Publication non trouvée")
@@ -222,7 +237,6 @@ async def update_post(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Mettre à jour un post"""
     post = await community_service.update_post(
         post_id, post_update, str(current_user.id), db
     )
@@ -237,30 +251,25 @@ async def delete_post(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Supprimer un post"""
     success = await community_service.delete_post(post_id, str(current_user.id), db)
     if not success:
         raise HTTPException(status_code=404, detail="Publication non trouvée")
     return {"message": "Publication supprimée"}
 
 
-# Routes pour les réactions
-
+# ── Réactions ──────────────────────────────────────────────────────────────────
 
 @router.post("/posts/{post_id}/react")
-async def react_post_alias(
+async def react_post(
     post_id: str,
     data: dict,
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Alias pour ajouter une réaction (utilisé par le frontend)"""
     reaction_data = ReactionCreate(type=data.get("reaction", "like"))
     return await community_service.add_reaction(
-        post_id=post_id,
-        reaction_data=reaction_data,
-        user_id=str(current_user.id),
-        db=db,
+        post_id=post_id, reaction_data=reaction_data,
+        user_id=str(current_user.id), db=db,
     )
 
 
@@ -271,48 +280,10 @@ async def add_post_reaction(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Ajouter une réaction à un post"""
     return await community_service.add_reaction(
-        post_id=post_id,
-        reaction_data=reaction_data,
-        user_id=str(current_user.id),
-        db=db,
+        post_id=post_id, reaction_data=reaction_data,
+        user_id=str(current_user.id), db=db,
     )
-
-
-# Routes pour les messages de groupe (Chat)
-
-
-@router.get("/groups/{group_id}/messages")
-async def get_group_messages(
-    group_id: str,
-    limit: int = Query(50, ge=1, le=100),
-    current_user: User = Depends(get_current_verified_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Récupérer les messages de chat d'un groupe"""
-    # Note: This should ideally use a Message model and service
-    # For now, return a mock or empty list if not implemented
-    return []
-
-
-@router.post("/groups/{group_id}/messages")
-async def send_group_message(
-    group_id: str,
-    data: dict,
-    current_user: User = Depends(get_current_verified_user),
-    db: AsyncSession = Depends(get_db),
-):
-    """Envoyer un message de chat dans un groupe"""
-    content = data.get("content")
-    if not content:
-        raise HTTPException(status_code=400, detail="Contenu requis")
-
-    # Logic to save message...
-    return {"message": "Message envoyé", "content": content}
-
-
-# Routes pour les commentaires
 
 
 @router.post("/comments/{comment_id}/reactions")
@@ -322,27 +293,20 @@ async def add_comment_reaction(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Ajouter une réaction à un commentaire"""
     return await community_service.add_reaction(
-        comment_id=comment_id,
-        reaction_data=reaction_data,
-        user_id=str(current_user.id),
-        db=db,
+        comment_id=comment_id, reaction_data=reaction_data,
+        user_id=str(current_user.id), db=db,
     )
 
 
-# Routes pour les commentaires
+# ── Commentaires ───────────────────────────────────────────────────────────────
 
-
-@router.post(
-    "/comments", response_model=CommentResponse, status_code=status.HTTP_201_CREATED
-)
+@router.post("/comments", response_model=CommentResponse, status_code=status.HTTP_201_CREATED)
 async def create_comment(
     comment_data: CommentCreate,
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Créer un nouveau commentaire"""
     return await community_service.create_comment(
         comment_data, str(current_user.id), db
     )
@@ -354,7 +318,6 @@ async def get_post_comments(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Récupérer les commentaires d'un post"""
     return await community_service.get_post_comments(post_id, str(current_user.id), db)
 
 
@@ -365,7 +328,6 @@ async def update_comment(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Mettre à jour un commentaire"""
     comment = await community_service.update_comment(
         comment_id, comment_update, str(current_user.id), db
     )
@@ -380,7 +342,6 @@ async def delete_comment(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    """Supprimer un commentaire"""
     success = await community_service.delete_comment(
         comment_id, str(current_user.id), db
     )

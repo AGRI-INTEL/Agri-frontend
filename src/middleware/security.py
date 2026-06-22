@@ -7,49 +7,60 @@ from typing import Callable
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
+_MAX_TRACKED_IPS = 50_000
+
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
     """Add security headers to responses"""
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # Skip WebSocket requests (BaseHTTPMiddleware doesn't support them)
         if request.scope.get("type") == "websocket":
             return await call_next(request)
         response = await call_next(request)
 
-        # Swagger/ReDoc ont besoin du CDN jsdelivr — on assouplit la CSP pour ces routes
-        # NOTE: Désactivé car géré par le proxy PHP ou Next.js pour éviter les conflits
-        csp = None
+        is_docs = request.url.path.startswith((
+            "/api/v1/docs", "/api/v1/redoc", "/api/v1/openapi.json"
+        ))
 
-        # Security headers
+        if is_docs:
+            csp = (
+                "default-src 'self'; "
+                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
+                "img-src 'self' data: https://fastapi.tiangolo.com; "
+                "font-src 'self' https://fonts.gstatic.com; "
+                "object-src 'none'"
+            )
+        else:
+            csp = (
+                "default-src 'self'; "
+                "script-src 'self'; "
+                "style-src 'self' 'unsafe-inline'; "
+                "img-src 'self' data:; "
+                "font-src 'self'; "
+                "connect-src 'self'; "
+                "object-src 'none'; "
+                "frame-ancestors 'none'"
+            )
+
         security_headers = {
+            "Content-Security-Policy": csp,
             "X-Frame-Options": "SAMEORIGIN",
             "X-Content-Type-Options": "nosniff",
             "X-XSS-Protection": "1; mode=block",
             "Referrer-Policy": "strict-origin-when-cross-origin",
-            # Strict Transport Security (HTTPS only)
             "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-            # Permissions Policy
             "Permissions-Policy": (
                 "geolocation=(), microphone=(), camera=(), "
                 "payment=(), usb=(), magnetometer=(), gyroscope=(), "
                 "accelerometer=(), ambient-light-sensor=(), autoplay=()"
             ),
-            # Hide server information
             "Server": "AgriIntel360",
-            # Cache control for sensitive endpoints
-            "Cache-Control": "no-cache, no-store, must-revalidate"
-            if "/api/" in str(request.url)
-            else "public, max-age=3600",
-            "Pragma": "no-cache" if "/api/" in str(request.url) else "",
         }
 
-        # Add security headers
         for header, value in security_headers.items():
-            if value:  # Only add non-empty headers
-                response.headers[header] = value
+            response.headers[header] = value
 
-        # Remove sensitive headers in production
         if "server" in response.headers:
             del response.headers["server"]
 
@@ -57,51 +68,56 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """Simple rate limiting middleware"""
+    """In-process rate limiting — bounded memory, LRU eviction."""
 
     def __init__(self, app, requests_per_minute: int = 300):
         super().__init__(app)
         self.requests_per_minute = requests_per_minute
-        self.clients = {}
+        # {ip: [timestamp, ...]} — evicted when list empties or cap reached
+        self.clients: dict[str, list] = {}
+
+    def _evict_one_idle(self, current_time: float) -> None:
+        """Remove the IP whose last request is oldest."""
+        oldest_ip = min(
+            self.clients,
+            key=lambda ip: self.clients[ip][-1] if self.clients[ip] else 0,
+        )
+        del self.clients[oldest_ip]
 
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        # Skip WebSocket requests (BaseHTTPMiddleware doesn't support them)
         if request.scope.get("type") == "websocket":
             return await call_next(request)
-        # Get client IP
+
         client_ip = request.client.host
 
-        # Skip rate limiting for health checks and internal IPs
         if (
             request.url.path.startswith("/health")
-            or client_ip in ["127.0.0.1", "::1", "localhost"]
+            or client_ip in {"127.0.0.1", "::1", "localhost"}
             or client_ip.startswith("10.")
             or client_ip.startswith("192.168.")
-            or (
-                client_ip.startswith("172.")
-                and 16 <= int(client_ip.split(".")[1]) <= 31
-            )
+            or (client_ip.startswith("172.") and 16 <= int(client_ip.split(".")[1]) <= 31)
         ):
             return await call_next(request)
 
         current_time = time.time()
+        cutoff = current_time - 60
 
-        # Initialize or update client data
         if client_ip not in self.clients:
+            if len(self.clients) >= _MAX_TRACKED_IPS:
+                self._evict_one_idle(current_time)
             self.clients[client_ip] = []
 
-        # Remove old requests (older than 1 minute)
-        self.clients[client_ip] = [
-            req_time
-            for req_time in self.clients[client_ip]
-            if current_time - req_time < 60
-        ]
+        # Purge old timestamps
+        self.clients[client_ip] = [t for t in self.clients[client_ip] if t > cutoff]
 
-        # Check rate limit — return JSONResponse (NOT raise HTTPException) to avoid
-        # exception propagation through BaseHTTPMiddleware which can crash uvicorn
+        # Evict entry entirely when list is empty (saves memory)
+        if not self.clients[client_ip] and client_ip in self.clients:
+            # Keep it — we're about to add to it below; just skip the key to avoid
+            # re-checking the cap. This path only fires on first request after idle.
+            pass
+
         if len(self.clients[client_ip]) >= self.requests_per_minute:
             from starlette.responses import JSONResponse
-
             return JSONResponse(
                 {"detail": "Too many requests. Please try again later."},
                 status_code=429,
@@ -112,23 +128,21 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 },
             )
 
-        # Add current request
         self.clients[client_ip].append(current_time)
 
+        # Evict the entry if it just became empty after the append (can't happen,
+        # but guard for future changes) — skip. The cleanup runs on next request.
+
         response = await call_next(request)
-
-        # Add rate limit headers
+        remaining = max(0, self.requests_per_minute - len(self.clients.get(client_ip, [])))
         response.headers["X-RateLimit-Limit"] = str(self.requests_per_minute)
-        response.headers["X-RateLimit-Remaining"] = str(
-            self.requests_per_minute - len(self.clients[client_ip])
-        )
+        response.headers["X-RateLimit-Remaining"] = str(remaining)
         response.headers["X-RateLimit-Reset"] = str(int(current_time + 60))
-
         return response
 
 
 class CORSSecurityMiddleware(BaseHTTPMiddleware):
-    """Enhanced CORS security middleware"""
+    """Enhanced CORS security middleware (kept for reference — not wired in main.py)."""
 
     def __init__(self, app, allowed_origins: list = None):
         super().__init__(app)
@@ -137,17 +151,14 @@ class CORSSecurityMiddleware(BaseHTTPMiddleware):
     async def dispatch(self, request: Request, call_next: Callable) -> Response:
         origin = request.headers.get("origin")
 
-        # Check if origin is allowed
         if origin and self.allowed_origins and origin not in self.allowed_origins:
             from fastapi import HTTPException, status
-
             raise HTTPException(
                 status_code=status.HTTP_403_FORBIDDEN, detail="Origin not allowed"
             )
 
         response = await call_next(request)
 
-        # Add CORS headers for allowed origins
         if origin and (not self.allowed_origins or origin in self.allowed_origins):
             response.headers["Access-Control-Allow-Origin"] = origin
             response.headers["Access-Control-Allow-Credentials"] = "true"
@@ -158,38 +169,6 @@ class CORSSecurityMiddleware(BaseHTTPMiddleware):
                 "Authorization, Content-Type, Accept, Origin, User-Agent, "
                 "Cache-Control, X-Requested-With"
             )
-            response.headers["Access-Control-Max-Age"] = "86400"  # 24 hours
-
-        return response
-
-
-from fastapi import Request, Response, status
-from fastapi.responses import JSONResponse
-from pydantic import BaseModel
-
-from config.config import get_settings
-
-
-class CSRFProtectMiddleware(BaseHTTPMiddleware):
-    """CSRF protection middleware using fastapi-csrf-protect"""
-
-    async def dispatch(self, request: Request, call_next: Callable) -> Response:
-        try:
-            from fastapi_csrf_protect import CsrfProtect
-            from fastapi_csrf_protect.exceptions import CsrfProtectError
-        except ImportError:
-            return await call_next(request)
-        csrf_protect = CsrfProtect(request)
-        try:
-            await csrf_protect.validate_csrf_token()
-        except CsrfProtectError as e:
-            return JSONResponse(
-                status_code=status.HTTP_403_FORBIDDEN, content={"detail": str(e)}
-            )
-
-        response = await call_next(request)
-
-        if request.method not in ["GET", "HEAD", "OPTIONS"]:
-            csrf_protect.set_csrf_cookie(response)
+            response.headers["Access-Control-Max-Age"] = "86400"
 
         return response

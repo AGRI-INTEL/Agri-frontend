@@ -7,7 +7,7 @@ import uvicorn
 from contextlib import asynccontextmanager
 from typing import Dict, Any
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, HTTPException, Request, Depends
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
@@ -15,28 +15,19 @@ from fastapi.staticfiles import StaticFiles
 from starlette.middleware.sessions import SessionMiddleware
 
 from config.config import get_settings
-
-# Commented out database imports to avoid connection issues
-# from config.database import create_db_and_tables, close_db_connections
 from config.logging import setup_logging
-
-# Uncommented router imports
 from api.routers.router import api_v1_router
-
-# from api.routers.health import health_router
 from api.routers.websocket import websocket_router
 from src.middleware.security import SecurityHeadersMiddleware
 from src.middleware.logging import LoggingMiddleware
 from src.middleware.security import RateLimitMiddleware
-
+from src.services.auth import require_admin
 
 settings = get_settings()
 
 
 @asynccontextmanager
 async def lifespan(app: FastAPI):
-    """Application lifespan handler"""
-    # Startup
     setup_logging()
     try:
         from config.database import create_db_and_tables
@@ -46,16 +37,13 @@ async def lifespan(app: FastAPI):
 
     yield
 
-    # Shutdown
     try:
         from config.database import close_db_connections
-
         await close_db_connections()
     except Exception as e:
         print(f"⚠️  Database shutdown warning: {e}")
 
 
-# Create FastAPI app
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="Plateforme Intelligente de Décision Agricole pour l'Afrique",
@@ -66,8 +54,7 @@ app = FastAPI(
     lifespan=lifespan,
 )
 
-
-# Prevent Varnish CDN from caching API responses (fixes 503/502 browser errors)
+# Prevent Varnish CDN from caching API responses
 @app.middleware("http")
 async def no_cache_api_responses(request: Request, call_next):
     response = await call_next(request)
@@ -78,60 +65,7 @@ async def no_cache_api_responses(request: Request, call_next):
     return response
 
 
-# Ensure CORS headers are always present (including on exceptions)
-@app.middleware("http")
-async def ensure_cors_headers(request: Request, call_next):
-    # Skip WebSocket requests (handled by the WS router directly)
-    if request.scope.get("type") == "websocket":
-        return await call_next(request)
-    
-    origin = request.headers.get("origin")
-    
-    # Handle OPTIONS preflight quickly
-    if request.method == "OPTIONS":
-        from fastapi.responses import Response
-        res = Response(status_code=204)
-        
-        if origin and (
-            origin in settings.BACKEND_CORS_ORIGINS
-            or "*" in settings.BACKEND_CORS_ORIGINS
-        ):
-            res.headers["Access-Control-Allow-Origin"] = origin
-        elif settings.BACKEND_CORS_ORIGINS:
-            # Fallback to the first allowed origin instead of joining them
-            res.headers["Access-Control-Allow-Origin"] = settings.BACKEND_CORS_ORIGINS[0]
-            
-        res.headers["Access-Control-Allow-Credentials"] = "true"
-        res.headers["Access-Control-Allow-Methods"] = "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-        res.headers["Access-Control-Allow-Headers"] = "Content-Type, Authorization, X-Requested-With, Accept, Origin"
-        return res
-
-    try:
-        response = await call_next(request)
-    except Exception as exc:
-        response = JSONResponse(status_code=500, content={"detail": str(exc)})
-
-    if origin and (
-        origin in settings.BACKEND_CORS_ORIGINS or "*" in settings.BACKEND_CORS_ORIGINS
-    ):
-        response.headers["Access-Control-Allow-Origin"] = origin
-    elif settings.BACKEND_CORS_ORIGINS:
-        # Fallback to the first allowed origin
-        response.headers["Access-Control-Allow-Origin"] = settings.BACKEND_CORS_ORIGINS[0]
-        
-    response.headers.setdefault("Access-Control-Allow-Credentials", "true")
-    response.headers.setdefault(
-        "Access-Control-Allow-Methods", "GET, POST, PUT, DELETE, OPTIONS, PATCH"
-    )
-    response.headers.setdefault(
-        "Access-Control-Allow-Headers",
-        "Content-Type, Authorization, X-Requested-With, Accept, Origin",
-    )
-
-    return response
-
-
-# CORS Middleware
+# CORS — single middleware, no duplicate
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
@@ -148,31 +82,23 @@ app.add_middleware(
     max_age=3600,
 )
 
-# Security Middleware
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(SessionMiddleware, secret_key=settings.JWT_SECRET_KEY)
 app.add_middleware(RateLimitMiddleware)
 app.add_middleware(LoggingMiddleware)
 
-# Trusted Host Middleware
 if settings.ENVIRONMENT == "production":
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 
-# Static files
 os.makedirs(settings.UPLOAD_DIR, exist_ok=True)
 app.mount("/static", StaticFiles(directory=settings.UPLOAD_DIR), name="static")
 
-# Include API routers (API v1 routes go through middleware)
 app.include_router(api_v1_router, prefix=settings.API_V1_STR)
-
-# WebSocket router bypasses HTTP middleware (BaseHTTPMiddleware doesn't support WS)
 app.include_router(websocket_router, prefix=settings.API_V1_STR)
 
 
-# Simple test endpoint
 @app.get("/")
 async def root():
-    """Root endpoint"""
     return {
         "message": f"Bienvenue sur {settings.PROJECT_NAME}",
         "version": settings.VERSION,
@@ -180,21 +106,16 @@ async def root():
     }
 
 
-# Health check endpoint — géré par health_router dans /api/v1/health
-
-
-# Metrics endpoint
-@app.get("/metrics")
+@app.get("/metrics", dependencies=[Depends(require_admin)])
 async def metrics_endpoint():
-    """Metrics endpoint for Prometheus"""
-    # Simple metrics response
+    """Prometheus-style metrics — admin only."""
+    from config.database import get_all_health_status
+    health = await get_all_health_status()
     return {
         "app_name": settings.PROJECT_NAME,
         "version": settings.VERSION,
-        "status": "running",
-        "uptime": "available",
-        "requests_total": 0,
-        "errors_total": 0,
+        "environment": settings.ENVIRONMENT,
+        "services": health,
     }
 
 

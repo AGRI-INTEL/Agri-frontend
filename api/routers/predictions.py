@@ -3,7 +3,7 @@
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
 from pydantic import BaseModel, Field
 from typing import Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import uuid
 import random
 import math
@@ -38,11 +38,11 @@ def _build_result(
     trend: str = "stable",
     factors: Optional[list] = None,
 ) -> dict:
-    now = datetime.utcnow().isoformat() + "Z"
+    now = datetime.now(timezone.utc).isoformat() + "Z"
     # Generate historical & prediction data points for charts
     historical = [
         {
-            "date": (datetime.utcnow() - timedelta(days=30 * (6 - i))).strftime(
+            "date": (datetime.now(timezone.utc) - timedelta(days=30 * (6 - i))).strftime(
                 "%Y-%m-%d"
             ),
             "value": round(value * (0.85 + random.random() * 0.3), 3),
@@ -51,7 +51,7 @@ def _build_result(
     ]
     prediction = [
         {
-            "date": (datetime.utcnow() + timedelta(days=30 * (i + 1))).strftime(
+            "date": (datetime.now(timezone.utc) + timedelta(days=30 * (i + 1))).strftime(
                 "%Y-%m-%d"
             ),
             "value": round(value * (0.95 + random.random() * 0.1), 3),
@@ -320,7 +320,7 @@ async def predict_weather(
     forecast = []
     days = 7 if request.horizon == "7d" else 14 if request.horizon == "14d" else 30
     for i in range(min(days, 14)):
-        day = datetime.utcnow() + timedelta(days=i)
+        day = datetime.now(timezone.utc) + timedelta(days=i)
         t_min = round(base_temp - 5 + (i % 3) * 1.5, 1)
         t_max = round(base_temp + 2 + (i % 2) * 2, 1)
         precip = round(max(0, 8 + math.sin(i * 0.5) * 6 + (i % 3) * 2), 1)
@@ -419,7 +419,7 @@ async def predict_disease(
     risk_pct = round(risk_score * 100, 0)
 
     # Generer predictions chart data
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     prediction_pts = []
     for i in range(6):
         d = (now + timedelta(days=30 * (i + 1))).strftime("%Y-%m-%d")
@@ -610,7 +610,7 @@ async def get_prediction_history(
     current_user: User = Depends(get_current_verified_user),
 ):
     """Historique des predictions avec filtrage"""
-    now = datetime.utcnow()
+    now = datetime.now(timezone.utc)
     types = ["yield", "price", "weather", "production", "disease"]
     history = []
 

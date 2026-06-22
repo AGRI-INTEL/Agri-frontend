@@ -13,7 +13,9 @@ class Settings(BaseSettings):
     """Application settings"""
 
     model_config = SettingsConfigDict(
-        env_file=".env", env_file_encoding="utf-8", case_sensitive=False
+        env_file=".env",
+        env_file_encoding="utf-8",
+        case_sensitive=False,
     )
 
     # Project info
@@ -39,7 +41,7 @@ class Settings(BaseSettings):
     MONGODB_URL: str = Field(
         default="mongodb://admin:CHANGE_ME@localhost:27017/agriintel360"
     )
-    REDIS_URL: str = Field(default="redis://:CHANGE_ME@localhost:6379")
+    REDIS_URL: str = Field(default="redis://127.0.0.1:6379")
     ELASTICSEARCH_URL: str = Field(default="http://localhost:9200")
     MONGODB_ENABLED: bool = True
     ELASTICSEARCH_ENABLED: bool = True
@@ -145,8 +147,8 @@ class Settings(BaseSettings):
     DEEPSEEK_API_KEY: Optional[str] = None
     DEFAULT_LLM_PROVIDER: str = "kimi"  # "kimi" | "deepseek" | "openai"
 
-    # Frontend URL
-    FRONTEND_URL: str = Field(default="http://localhost:3000")
+    # Frontend URL — set FRONTEND_URL=https://agriintel360.lsgrouptogo.com in production .env
+    FRONTEND_URL: str = Field(default="https://agriintel360.lsgrouptogo.com")
 
     # Email settings (for fastapi-mail)
     MAIL_USERNAME: Optional[str] = None

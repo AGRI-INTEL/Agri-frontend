@@ -1,6 +1,6 @@
 """Weather API endpoints — données réelles via Open-Meteo (gratuit, sans clé)"""
 
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional
 from fastapi import APIRouter, Depends, Query, HTTPException
 import httpx
@@ -183,7 +183,7 @@ def build_current_response(current: dict, daily: dict, location: dict) -> dict:
         "sunset": sunset,
         "is_day": current.get("is_day", 1) == 1,
         "weather_code": wmo_code,
-        "updated_at": current.get("time", datetime.utcnow().isoformat()),
+        "updated_at": current.get("time", datetime.now(timezone.utc).isoformat()),
     }
 
 
@@ -285,8 +285,8 @@ async def get_weather_history(
         start = start_date
         end = end_date
     else:
-        end = datetime.utcnow().strftime("%Y-%m-%d")
-        start = (datetime.utcnow() - timedelta(days=days)).strftime("%Y-%m-%d")
+        end = datetime.now(timezone.utc).strftime("%Y-%m-%d")
+        start = (datetime.now(timezone.utc) - timedelta(days=days)).strftime("%Y-%m-%d")
 
     try:
         data = await fetch_archive(location["lat"], location["lon"], start, end)
@@ -327,7 +327,7 @@ async def get_weather_alerts(
     current = data.get("current", {})
     daily = data.get("daily", {})
     alerts: list[dict] = []
-    now_str = datetime.utcnow().isoformat()
+    now_str = datetime.now(timezone.utc).isoformat()
 
     temp = current.get("temperature_2m", 25)
     humidity = current.get("relative_humidity_2m", 50)
@@ -461,7 +461,7 @@ async def get_multi_city_weather(
                     "humidity": humidity_val,
                     "wind_speed": round(wind_speed_val, 1),
                     "uv_index": current.get("uv_index"),
-                    "updated_at": current.get("time", datetime.utcnow().isoformat()),
+                    "updated_at": current.get("time", datetime.now(timezone.utc).isoformat()),
                 })
             except httpx.HTTPError:
                 continue

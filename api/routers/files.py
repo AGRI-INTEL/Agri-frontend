@@ -3,7 +3,7 @@ API endpoints pour la gestion des fichiers
 """
 
 from typing import List, Optional
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 import secrets
 
 from fastapi import APIRouter, Depends, HTTPException, status, Query, UploadFile, File, Form
@@ -277,7 +277,7 @@ async def share_file(
     share_token = secrets.token_urlsafe(16)
     return {
         "share_url": "https://agriintel360.lsgrouptogo.com/shared/" + share_token,
-        "expires_at": (datetime.utcnow() + timedelta(days=7)).isoformat()
+        "expires_at": (datetime.now(timezone.utc) + timedelta(days=7)).isoformat()
     }
 
 

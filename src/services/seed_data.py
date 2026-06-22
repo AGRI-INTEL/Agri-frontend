@@ -6,7 +6,7 @@ Run with: python -m src.services.seed_data
 import asyncio
 import random
 import uuid
-from datetime import datetime, timedelta, date
+from datetime import datetime, timedelta, date, timezone
 from decimal import Decimal
 
 from sqlalchemy import select, text
@@ -566,7 +566,7 @@ async def seed_weather_data(db: AsyncSession):
     weather_count = 0
     for city, country, lat, lon in cities:
         for day_offset in range(0, 90):
-            day = datetime.utcnow() - timedelta(days=day_offset)
+            day = datetime.now(timezone.utc) - timedelta(days=day_offset)
             w = StagingWeather(
                 city=city,
                 country=country,
@@ -733,7 +733,7 @@ async def seed_alerts(db: AsyncSession):
                 if random.random() > 0.3
                 else None,
                 crop_id=crops_db[crop["name"]].id if random.random() > 0.5 else None,
-                created_at=datetime.utcnow() - timedelta(days=_rand_int(0, 30)),
+                created_at=datetime.now(timezone.utc) - timedelta(days=_rand_int(0, 30)),
             )
             db.add(alert)
             alerts_created += 1
