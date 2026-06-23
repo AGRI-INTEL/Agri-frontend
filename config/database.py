@@ -26,6 +26,8 @@ engine = create_async_engine(
     echo=settings.DEBUG,
     pool_pre_ping=True,
     pool_recycle=300,
+    connect_args={"timeout": 5},
+    pool_timeout=5,
 )
 
 async_session_maker = async_sessionmaker(
@@ -158,8 +160,14 @@ async def _run_alembic_upgrade() -> None:
         cfg.set_main_option("sqlalchemy.url", settings.database_url_sync.replace("%", "%%"))
 
         loop = asyncio.get_event_loop()
-        await loop.run_in_executor(None, command.upgrade, cfg, "head")
-        logger.info("Alembic migrations applied successfully")
+        try:
+            await asyncio.wait_for(
+                loop.run_in_executor(None, command.upgrade, cfg, "head"),
+                timeout=10.0,
+            )
+            logger.info("Alembic migrations applied successfully")
+        except asyncio.TimeoutError:
+            logger.warning("Alembic upgrade timed out — skipping")
     except Exception as exc:  # pragma: no cover - defensive guard
         # Migrations are best-effort: the programmatic column check below will
         # cover the most common case (new columns on existing tables) so the
@@ -261,8 +269,7 @@ async def create_db_and_tables():
         print("✅ All databases initialized successfully")
 
     except Exception as e:
-        print(f"❌ Database initialization error: {e}")
-        raise
+        print(f"⚠️ Database initialization error (non-fatal): {e}")
 
 
 async def close_db_connections():

@@ -1,22 +1,22 @@
-"""Analytics API endpoints using real indicator data from the database"""
+"""Analytics API endpoints using real indicator and production data from the database"""
 
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
 
 from fastapi import APIRouter, Depends, HTTPException, UploadFile, File, Form
-from sqlalchemy import func as sa_func, select
+from sqlalchemy import func as sa_func, select, extract
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from config.database import get_db
 from api.models.sql.indicators import (
     IndicateurValeur,
     CategorieIndicateurEnum,
-    SousSecteursEnum,
     TypeIndicateurEnum,
 )
+from api.models.sql.actors import SousSecteursEnum
 from api.models.sql.actors import Actor
-from api.models.sql.agricultural import Alert
+from api.models.sql.agricultural import Alert, MalaboYieldIndicator, StagingWeather
 
 router = APIRouter()
 
@@ -75,7 +75,8 @@ async def _countries(db: AsyncSession) -> List[str]:
 
 @router.get("/overview")
 async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
-    indicators = (await db.execute(sa_func.count(IndicateurValeur.id))).scalar() or 0
+    # Fixed: wrap sa_func calls in select()
+    indicators = (await db.execute(select(sa_func.count(IndicateurValeur.id)))).scalar() or 0
     actors = (await db.execute(
         select(sa_func.count(Actor.id)).where(Actor.is_active == True)
     )).scalar() or 0
@@ -92,15 +93,6 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
         select(sa_func.count(sa_func.distinct(IndicateurValeur.categorie)))
     )).scalar() or 0
 
-    sectors_data = (await db.execute(
-        select(IndicateurValeur.sous_secteur, sa_func.count(IndicateurValeur.id))
-        .group_by(IndicateurValeur.sous_secteur)
-    )).all()
-    by_sector = [
-        {"sector": r[0].value if hasattr(r[0], "value") else str(r[0]), "count": r[1]}
-        for r in sectors_data
-    ]
-
     health_data = dict((await db.execute(
         select(IndicateurValeur.is_valide, sa_func.count(IndicateurValeur.id))
         .group_by(IndicateurValeur.is_valide)
@@ -109,19 +101,93 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
     valid = health_data.get(True, 0)
     invalid = health_data.get(False, 0)
 
-    min_year = (await db.execute(sa_func.min(IndicateurValeur.annee))).scalar() or datetime.now(timezone.utc).year
-    max_year = (await db.execute(sa_func.max(IndicateurValeur.annee))).scalar() or min_year
+    # Fixed: wrap min/max in select()
+    min_year_val = (await db.execute(select(sa_func.min(IndicateurValeur.annee)))).scalar() or datetime.now(timezone.utc).year
+    max_year_val = (await db.execute(select(sa_func.max(IndicateurValeur.annee)))).scalar() or min_year_val
 
+    # ── Real production data from MalaboYieldIndicator ──
+    malabo_rows = (await db.execute(
+        select(
+            MalaboYieldIndicator.year,
+            MalaboYieldIndicator.crop_name,
+            MalaboYieldIndicator.production_tonnes,
+        )
+        .where(MalaboYieldIndicator.production_tonnes != None)
+        .order_by(MalaboYieldIndicator.year)
+        .limit(5000)
+    )).all()
+
+    if malabo_rows:
+        # Monthly production → actually annual production totals
+        annual_prod: Dict[int, float] = defaultdict(float)
+        crop_prod: Dict[str, float] = defaultdict(float)
+        for r in malabo_rows:
+            if r.year and r.production_tonnes:
+                annual_prod[r.year] += float(r.production_tonnes)
+                if r.crop_name:
+                    crop_prod[r.crop_name] += float(r.production_tonnes)
+
+        monthly_production = [
+            {"year": str(yr), "value": round(total, 0)}
+            for yr, total in sorted(annual_prod.items())
+        ]
+        total_value = sum(annual_prod.values())
+
+        # Top crops by total production — Fixed field names: name + value
+        sorted_crops = sorted(crop_prod.items(), key=lambda x: x[1], reverse=True)
+        production_by_crop = [
+            {"crop": name, "tonnes": round(total, 0)}
+            for name, total in sorted_crops[:10]
+        ]
+        top_crops = [
+            {"name": name, "value": round(total, 0)}
+            for name, total in sorted_crops[:8]
+        ]
+    else:
+        # Fallback to IndicateurValeur
+        all_rows = await _query(db, limit=MAX_LIMIT)
+
+        annual_data: Dict[int, List[float]] = defaultdict(list)
+        for r in all_rows:
+            if r.annee and r.valeur_numerique is not None:
+                annual_data[r.annee].append(float(r.valeur_numerique))
+
+        monthly_production = [
+            {"year": str(yr), "value": round(sum(v) / len(v), 2)}
+            for yr, v in sorted(annual_data.items())
+        ]
+        total_value = sum(sum(v) for v in annual_data.values())
+
+        sectors_data = (await db.execute(
+            select(IndicateurValeur.sous_secteur, sa_func.count(IndicateurValeur.id))
+            .group_by(IndicateurValeur.sous_secteur)
+        )).all()
+        # Fixed field names: crop + tonnes
+        production_by_crop = [
+            {"crop": r[0].value if hasattr(r[0], "value") else str(r[0]), "tonnes": r[1]}
+            for r in sectors_data
+        ]
+
+        type_avg_vals: Dict[str, List[float]] = defaultdict(list)
+        for r in all_rows:
+            if r.annee and r.valeur_numerique is not None and r.type_indicateur:
+                type_avg_vals[str(r.type_indicateur)].append(float(r.valeur_numerique))
+
+        # Fixed field names: name + value
+        top_crops = sorted(
+            [{"name": t, "value": round(sum(v) / len(v), 2)} for t, v in type_avg_vals.items()],
+            key=lambda x: x["value"],
+            reverse=True,
+        )[:8]
+
+    # Growth calculation from IndicateurValeur
     all_rows = await _query(db, limit=MAX_LIMIT)
-
-    # Per-type per-year average for growth computation
-    type_year_vals = defaultdict(lambda: defaultdict(list))
+    type_year_vals: Dict[str, Dict[int, List[float]]] = defaultdict(lambda: defaultdict(list))
     for r in all_rows:
         if r.annee and r.valeur_numerique is not None:
             key = str(r.type_indicateur) if r.type_indicateur else "unknown"
             type_year_vals[key][r.annee].append(float(r.valeur_numerique))
 
-    # Compute average YoY growth per indicator type, then combine
     growth_rates = []
     for t, yr_vals in type_year_vals.items():
         sorted_yrs = sorted(yr_vals.keys())
@@ -134,48 +200,21 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
 
     growth_pct = round((sum(growth_rates) / len(growth_rates)) * 100, 1) if growth_rates else 0
 
-    # Top indicator types by average value
-    type_avg_vals = defaultdict(list)
-    for r in all_rows:
-        if r.annee and r.valeur_numerique is not None and r.type_indicateur:
-            type_avg_vals[str(r.type_indicateur)].append(float(r.valeur_numerique))
-
-    top_types = sorted(
-        [{"indicator_type": t, "avg_value": round(sum(v) / len(v), 2)} for t, v in type_avg_vals.items()],
-        key=lambda x: x["avg_value"],
-        reverse=True,
-    )[:10]
-
-    # Annual totals for chart
-    annual_data = defaultdict(list)
-    for r in all_rows:
-        if r.annee and r.valeur_numerique is not None:
-            annual_data[r.annee].append(float(r.valeur_numerique))
-
-    annual_avg = [
-        {"year": str(yr), "value": round(sum(v) / len(v), 2)}
-        for yr, v in sorted(annual_data.items())
-    ]
-
-    total_value = sum(sum(v) for v in annual_data.values())
-
     return {
         "indicators": indicators,
         "growth": f"+{growth_pct}%" if growth_pct >= 0 else f"{growth_pct}%",
         "active_users": actors,
         "alerts_7d": alerts,
         "total_production": round(total_value, 0),
-        "production_unit": "valeur cumulée",
-        "avg_confidence": round(
-            valid / max((valid + invalid), 1), 2
-        ),
+        "production_unit": "tonnes",
+        "avg_confidence": round(valid / max((valid + invalid), 1), 2),
         "countries_covered": countries_covered,
         "data_points": indicators,
         "system_status": "healthy",
-        "top_crops": top_types[:8],
-        "monthly_production": annual_avg,
-        "production_by_crop": by_sector,
-        "region_stats": [{"region": s["sector"], "value": s["count"]} for s in by_sector],
+        "top_crops": top_crops,
+        "monthly_production": monthly_production,
+        "production_by_crop": production_by_crop,
+        "region_stats": [{"region": c["crop"], "value": c["tonnes"]} for c in production_by_crop],
     }
 
 
@@ -188,11 +227,37 @@ async def get_production_trends(
     crop: str = "Tous",
     db: AsyncSession = Depends(get_db),
 ):
-    days_map = {"1M": 1, "3M": 3, "6M": 6, "1Y": 10, "2Y": 20}
-    lookback = days_map.get(period, 10)
+    years_back_map = {"1M": 1, "3M": 3, "6M": 6, "1Y": 10, "2Y": 20}
+    lookback = years_back_map.get(period, 10)
     now_year = datetime.now(timezone.utc).year
     min_year = now_year - lookback
 
+    # Try MalaboYieldIndicator first (real production data)
+    q = (
+        select(
+            MalaboYieldIndicator.year,
+            sa_func.sum(MalaboYieldIndicator.production_tonnes).label("total"),
+        )
+        .where(
+            MalaboYieldIndicator.production_tonnes != None,
+            MalaboYieldIndicator.year >= min_year,
+        )
+        .group_by(MalaboYieldIndicator.year)
+        .order_by(MalaboYieldIndicator.year)
+    )
+    if crop and crop.lower() != "tous":
+        q = q.where(MalaboYieldIndicator.crop_name.ilike(f"%{crop}%"))
+
+    malabo_result = (await db.execute(q)).all()
+
+    if malabo_result:
+        data = [
+            {"date": str(r.year), "value": round(float(r.total or 0), 2)}
+            for r in malabo_result
+        ]
+        return {"crop": crop, "period": period, "data": data, "unit": "tonnes"}
+
+    # Fallback to IndicateurValeur
     rows = await _query(
         db,
         type_indicateurs=[
@@ -204,7 +269,7 @@ async def get_production_trends(
         limit=1000,
     )
 
-    by_year = defaultdict(list)
+    by_year: Dict[int, List[float]] = defaultdict(list)
     for r in rows:
         if r.annee and r.valeur_numerique is not None:
             by_year[r.annee].append(float(r.valeur_numerique))
@@ -226,8 +291,8 @@ async def get_price_trends(
     period: str = "1Y",
     db: AsyncSession = Depends(get_db),
 ):
-    days_map = {"1M": 1, "3M": 3, "6M": 6, "1Y": 10, "2Y": 20}
-    lookback = days_map.get(period, 10)
+    years_back_map = {"1M": 1, "3M": 3, "6M": 6, "1Y": 10, "2Y": 20}
+    lookback = years_back_map.get(period, 10)
     now_year = datetime.now(timezone.utc).year
     min_year = now_year - lookback
 
@@ -238,7 +303,7 @@ async def get_price_trends(
         limit=1000,
     )
 
-    by_year = defaultdict(list)
+    by_year: Dict[int, List[float]] = defaultdict(list)
     for r in rows:
         if r.annee and r.valeur_numerique is not None:
             by_year[r.annee].append(float(r.valeur_numerique))
@@ -248,7 +313,7 @@ async def get_price_trends(
         for yr, vals in sorted(by_year.items())
     ]
 
-    return {"crop": crop, "period": period, "data": data, "unit": "valeur moyenne"}
+    return {"crop": crop, "period": period, "data": data, "unit": "valeur moyenne (XOF)"}
 
 
 # ─── Weather Trends ──────────────────────────────────────────────────────
@@ -260,11 +325,58 @@ async def get_weather_trends(
     period: str = "1Y",
     db: AsyncSession = Depends(get_db),
 ):
-    days_map = {"1M": 1, "3M": 3, "6M": 6, "1Y": 10, "2Y": 20}
-    lookback = days_map.get(period, 10)
+    years_back_map = {"1M": 1, "3M": 3, "6M": 6, "1Y": 10, "2Y": 20}
+    lookback = years_back_map.get(period, 10)
     now_year = datetime.now(timezone.utc).year
-    min_year = now_year - lookback
+    min_year_val = now_year - lookback
 
+    # Try real StagingWeather data first
+    try:
+        weather_q = (
+            select(
+                extract("year", StagingWeather.date).label("year"),
+                sa_func.avg(StagingWeather.temperature).label("avg_temp"),
+                sa_func.avg(StagingWeather.precipitation).label("avg_precip"),
+                sa_func.max(StagingWeather.temperature).label("max_temp"),
+                sa_func.min(StagingWeather.temperature).label("min_temp"),
+            )
+            .where(
+                StagingWeather.country.ilike(f"%{country}%"),
+                extract("year", StagingWeather.date) >= min_year_val,
+            )
+            .group_by(extract("year", StagingWeather.date))
+            .order_by(extract("year", StagingWeather.date))
+        )
+        weather_rows = (await db.execute(weather_q)).all()
+
+        if weather_rows:
+            temperature = [
+                {"date": str(int(r.year)), "temperature": round(float(r.avg_temp or 0), 2)}
+                for r in weather_rows
+            ]
+            precipitation = [
+                {"date": str(int(r.year)), "precipitation": round(float(r.avg_precip or 0), 2)}
+                for r in weather_rows
+            ]
+            all_temps = [t["temperature"] for t in temperature]
+            all_precips = [p["precipitation"] for p in precipitation]
+            return {
+                "country": country,
+                "period": period,
+                "temperature": temperature,
+                "precipitation": precipitation,
+                "summary": {
+                    "avg_temp": round(sum(all_temps) / max(len(all_temps), 1), 2),
+                    "avg_precip": round(sum(all_precips) / max(len(all_precips), 1), 2),
+                    "max_temp": max(all_temps, default=0),
+                    "min_temp": min(all_temps, default=0),
+                    "data_points": len(temperature),
+                },
+            }
+    except Exception:
+        pass
+
+    # Fallback: use IndicateurValeur as proxy indicator trend
     rows = await _query(
         db,
         countries=[country],
@@ -273,31 +385,33 @@ async def get_weather_trends(
             TypeIndicateurEnum.CHIFFRE_AFFAIRES,
             TypeIndicateurEnum.VALEUR_AJOUTEE,
         ],
-        min_year=min_year,
+        min_year=min_year_val,
         limit=1000,
     )
 
-    by_year = defaultdict(list)
+    by_year: Dict[int, List[float]] = defaultdict(list)
     for r in rows:
         if r.annee and r.valeur_numerique is not None:
             by_year[r.annee].append(float(r.valeur_numerique))
 
-    indicators_data = [
-        {"date": str(yr), "value": round(sum(vals) / len(vals), 2)}
+    # Fixed: field key is "temperature" (not "value") to match frontend dataKey
+    temperature = [
+        {"date": str(yr), "temperature": round(sum(vals) / len(vals), 2)}
         for yr, vals in sorted(by_year.items())
     ]
+    all_temps = [t["temperature"] for t in temperature]
 
     return {
         "country": country,
         "period": period,
-        "temperature": indicators_data,
+        "temperature": temperature,
+        "precipitation": [],  # No precipitation fallback data available
         "summary": {
-            "avg_value": round(
-                sum(d["value"] for d in indicators_data) / max(len(indicators_data), 1), 2
-            ),
-            "max_value": max((d["value"] for d in indicators_data), default=0),
-            "min_value": min((d["value"] for d in indicators_data), default=0),
-            "data_points": len(indicators_data),
+            "avg_temp": round(sum(all_temps) / max(len(all_temps), 1), 2),
+            "avg_precip": 0,
+            "max_temp": max(all_temps, default=0),
+            "min_temp": min(all_temps, default=0),
+            "data_points": len(temperature),
         },
     }
 
@@ -314,9 +428,44 @@ async def compare_countries(
 ):
     country_list = [c.strip() for c in countries.split(",") if c.strip()]
 
+    # Try MalaboYieldIndicator for real production comparison
+    q = (
+        select(
+            MalaboYieldIndicator.country_name,
+            MalaboYieldIndicator.year,
+            sa_func.sum(MalaboYieldIndicator.production_tonnes).label("total"),
+        )
+        .where(
+            MalaboYieldIndicator.production_tonnes != None,
+            MalaboYieldIndicator.country_name.in_(country_list),
+        )
+        .group_by(MalaboYieldIndicator.country_name, MalaboYieldIndicator.year)
+        .order_by(MalaboYieldIndicator.year)
+    )
+    if crop and crop.lower() != "tous":
+        q = q.where(MalaboYieldIndicator.crop_name.ilike(f"%{crop}%"))
+
+    malabo_rows = (await db.execute(q)).all()
+
+    if malabo_rows:
+        comparison: Dict[str, List[Dict]] = {c: [] for c in country_list}
+        for r in malabo_rows:
+            if r.country_name in comparison:
+                comparison[r.country_name].append(
+                    {"year": r.year, "value": round(float(r.total or 0), 2)}
+                )
+        return {
+            "comparison": comparison,
+            "countries": country_list,
+            "crop": crop,
+            "metric": metric,
+            "unit": "tonnes",
+        }
+
+    # Fallback to IndicateurValeur
     rows = await _query(db, countries=country_list, limit=MAX_LIMIT)
 
-    groups = defaultdict(lambda: defaultdict(list))
+    groups: Dict[str, Dict[int, List[float]]] = defaultdict(lambda: defaultdict(list))
     for r in rows:
         if r.annee and r.valeur_numerique is not None and r.pays:
             groups[r.pays][r.annee].append(float(r.valeur_numerique))
@@ -347,6 +496,32 @@ async def get_production_analytics(
     year: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
 ):
+    # Try MalaboYieldIndicator first
+    q = select(MalaboYieldIndicator).where(
+        MalaboYieldIndicator.production_tonnes != None
+    )
+    if country:
+        q = q.where(MalaboYieldIndicator.country_name.ilike(f"%{country}%"))
+    if year:
+        q = q.where(MalaboYieldIndicator.year == year)
+    q = q.order_by(MalaboYieldIndicator.year.desc()).limit(500)
+
+    malabo_rows = (await db.execute(q)).scalars().all()
+
+    if malabo_rows:
+        total = sum(float(r.production_tonnes or 0) for r in malabo_rows)
+        data = [
+            {
+                "year": r.year,
+                "crop_name": r.crop_name or "N/A",
+                "country_name": r.country_name or country or "N/A",
+                "production_tonnes": float(r.production_tonnes or 0),
+            }
+            for r in malabo_rows
+        ]
+        return {"summary": {"total": round(total, 2), "count": len(data)}, "data": data[:100]}
+
+    # Fallback to IndicateurValeur
     rows = await _query(
         db,
         countries=[country] if country else None,
@@ -381,8 +556,6 @@ async def get_weather_analytics(
     country: Optional[str] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    from api.models.sql.agricultural import StagingWeather
-
     try:
         q = select(StagingWeather).order_by(StagingWeather.date.desc()).limit(200)
         if country:

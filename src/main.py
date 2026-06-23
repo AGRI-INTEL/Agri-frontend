@@ -8,6 +8,7 @@ import os
 os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
 os.environ.setdefault('OMP_NUM_THREADS', '1')
 
+import asyncio
 import uvicorn
 from contextlib import asynccontextmanager
 from typing import Dict, Any
@@ -36,19 +37,27 @@ async def lifespan(app: FastAPI):
     setup_logging()
     try:
         from config.database import create_db_and_tables
-        await create_db_and_tables()
+        await asyncio.wait_for(create_db_and_tables(), timeout=15.0)
+    except asyncio.TimeoutError:
+        print("⚠️  Database initialization timed out — continuing without DB init")
     except Exception as e:
         print(f"⚠️  Database initialization warning (non-fatal): {e}")
 
     # Start background tasks
     try:
         from src.tasks.indicator_sync import start_background_tasks
-        await start_background_tasks(app)
+        await asyncio.wait_for(start_background_tasks(app), timeout=5.0)
+    except asyncio.TimeoutError:
+        print("⚠️  Background task start timed out — continuing")
     except Exception as e:
+        import traceback
         print(f"⚠️  Background task start warning: {e}")
+        traceback.print_exc()
 
+    print("✅ Lifespan yield — server is ready")
     yield
 
+    print("⏹️  Lifespan shutdown started")
     try:
         from src.tasks.indicator_sync import stop_background_tasks
         await stop_background_tasks(app)

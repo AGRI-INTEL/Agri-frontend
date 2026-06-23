@@ -38,7 +38,7 @@ async def _compute_kpis(db: AsyncSession) -> dict:
     active_farmers = actors_q.scalar() or 52400
 
     hectares_q = await db.execute(
-        select(sa_func.coalesce(sa_func.sum(Actor.superficie_ha), 0))
+        select(sa_func.coalesce(sa_func.sum(Actor.superficie_totale_ha), 0))
     )
     hectares = round(float(hectares_q.scalar() or 2850000), 0)
 
