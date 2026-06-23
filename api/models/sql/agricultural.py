@@ -152,6 +152,7 @@ class Alert(Base):
     alert_type = Column(String, nullable=False)
     severity = Column(String, nullable=False)
     is_read = Column(Boolean, default=False, nullable=False)
+    action_url = Column(String(500), nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now())
     
     user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=True)

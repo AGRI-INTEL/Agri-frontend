@@ -8,7 +8,7 @@ from datetime import datetime
 from typing import Optional
 
 from sqlalchemy import (Boolean, Column, DateTime, Enum as SAEnum, ForeignKey,
-                        Index, Integer, String, Table, Text, UniqueConstraint)
+                        Index, Integer, String, Table, Text, UniqueConstraint, text)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -75,10 +75,9 @@ class Group(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     name = Column(String(100), nullable=False)
     description = Column(Text, nullable=True)
-    # Utilise SAEnum avec create_type=False pour éviter l'erreur varchar=grouptype
     type = Column(
         SAEnum('public', 'private', 'professional', 'research', 'regional', 'thematic',
-               name='grouptype', create_type=False),
+               name='grouptype', create_type=False, native_enum=False),
         nullable=False,
         server_default='public',
     )
@@ -121,6 +120,10 @@ class GroupMessage(Base):
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     content = Column(Text, nullable=False)
+    message_type = Column(String(20), default='text', server_default=text("'text'"), nullable=False)
+    is_edited = Column(Boolean, default=False, server_default=text('false'), nullable=False)
+    audio_url = Column(String(500), nullable=True)
+    audio_duration = Column(Integer, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
 
     author_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=False)
@@ -187,8 +190,8 @@ class Comment(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     content = Column(Text, nullable=False)
 
-    is_edited = Column(Boolean, default=False, nullable=False)
-    is_deleted = Column(Boolean, default=False, nullable=False)
+    is_edited = Column(Boolean, default=False, server_default=text('false'), nullable=False)
+    is_deleted = Column(Boolean, default=False, server_default=text('false'), nullable=False)
 
     like_count = Column(Integer, default=0, nullable=False)
 

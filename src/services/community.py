@@ -17,6 +17,7 @@ from api.models.sql.community import (
     GroupRole, group_members
 )
 from api.models.sql.user import User
+from api.models.sql.agricultural import Alert
 from api.schemas.community import (
     GroupResponse, GroupCreate, GroupUpdate, GroupDetailResponse,
     PostResponse, PostCreate, PostUpdate, PostListResponse
@@ -124,6 +125,12 @@ class CommunityService:
         await db.commit()
         await db.refresh(post)
 
+        # Notifier les membres du groupe (sauf l'auteur)
+        try:
+            await self._notify_group_members(str(post_data.group_id), user_id, group.name if group else "", post, db)
+        except Exception:
+            pass  # Échec silencieux des notifications
+
         return await self._post_to_response(post, user_id, db)
 
     async def update_group(self, group_id: str, group_update, user_id: str, db: AsyncSession) -> Optional[GroupResponse]:
@@ -132,8 +139,9 @@ class CommunityService:
         group = result.scalar_one_or_none()
         if not group:
             return None
-        if str(group.created_by) != user_id:
-            raise HTTPException(status_code=403, detail="Accès refusé")
+        is_admin = await self._check_group_admin(group_id, user_id, db)
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Seuls les administrateurs peuvent modifier le groupe")
         for field, value in group_update.model_dump(exclude_unset=True).items():
             setattr(group, field, value)
         await db.commit()
@@ -153,6 +161,19 @@ class CommunityService:
         group = result.scalar_one_or_none()
         if group and group.member_count > 0:
             group.member_count -= 1
+        await db.commit()
+        return True
+
+    async def delete_group(self, group_id: str, user_id: str, db: AsyncSession) -> bool:
+        """Delete a group entirely. Only the owner (created_by) can do this."""
+        query = select(Group).where(Group.id == group_id)
+        result = await db.execute(query)
+        group = result.scalar_one_or_none()
+        if not group:
+            return False
+        if str(group.created_by) != user_id:
+            raise HTTPException(status_code=403, detail="Seul le fondateur peut supprimer le groupe")
+        await db.delete(group)
         await db.commit()
         return True
 
@@ -405,6 +426,10 @@ class CommunityService:
             {
                 "id": str(m.id),
                 "content": m.content,
+                "message_type": m.message_type or "text",
+                "is_edited": m.is_edited,
+                "audio_url": m.audio_url,
+                "audio_duration": m.audio_duration,
                 "author_id": str(m.author_id),
                 "author_name": u.full_name or u.username or "Utilisateur",
                 "author_avatar": u.avatar_url,
@@ -435,11 +460,185 @@ class CommunityService:
         return {
             "id": str(msg.id),
             "content": msg.content,
+            "message_type": msg.message_type or "text",
+            "author_id": str(msg.author_id),
+            "author_name": author.full_name if author else "Utilisateur",
+            "author_avatar": author.avatar_url if author else None,
+            "is_edited": msg.is_edited,
+            "created_at": msg.created_at.isoformat() if msg.created_at else None,
+        }
+
+    # ── Notifications ─────────────────────────────────────────────────────────
+
+    async def _notify_group_members(self, group_id: str, author_id: str, group_name: str, post: Post, db: AsyncSession) -> None:
+        """Notifie tous les membres d'un groupe sauf l'auteur qu'un nouveau post a été créé"""
+        query = select(group_members.c.user_id).where(
+            and_(
+                group_members.c.group_id == group_id,
+                group_members.c.user_id != author_id,
+                group_members.c.is_active == True,
+            )
+        )
+        result = await db.execute(query)
+        member_ids = [row.user_id for row in result.fetchall()]
+
+        title = f"Nouvelle publication dans {group_name}"
+        content_preview = (post.content or "")[:120]
+        message = f"{content_preview}…" if len(content_preview) >= 120 else content_preview
+
+        for member_id in member_ids:
+            alert = Alert(
+                title=title,
+                message=message,
+                alert_type="community_post",
+                severity="info",
+                user_id=member_id,
+                action_url=f"/community/groups/{group_id}",
+            )
+            db.add(alert)
+        await db.commit()
+
+    # ── Gestion des messages (chat) ────────────────────────────────────────────
+
+    async def edit_group_message(self, message_id: str, content: str, user_id: str, db: AsyncSession) -> Optional[dict]:
+        result = await db.execute(select(GroupMessage).where(GroupMessage.id == message_id))
+        msg = result.scalar_one_or_none()
+        if not msg:
+            return None
+        if str(msg.author_id) != user_id:
+            raise HTTPException(status_code=403, detail="Vous ne pouvez modifier que vos propres messages")
+        msg.content = content
+        msg.is_edited = True
+        await db.commit()
+        await db.refresh(msg)
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        author = user_result.scalar_one_or_none()
+        return {
+            "id": str(msg.id),
+            "content": msg.content,
+            "author_id": str(msg.author_id),
+            "author_name": author.full_name if author else "Utilisateur",
+            "author_avatar": author.avatar_url if author else None,
+            "is_edited": msg.is_edited,
+            "created_at": msg.created_at.isoformat() if msg.created_at else None,
+            "updated_at": msg.updated_at.isoformat() if msg.updated_at else None,
+        }
+
+    async def delete_group_message(self, message_id: str, user_id: str, db: AsyncSession) -> bool:
+        result = await db.execute(select(GroupMessage).where(GroupMessage.id == message_id))
+        msg = result.scalar_one_or_none()
+        if not msg:
+            return False
+        # Vérifier si l'utilisateur est l'auteur ou admin/owner du groupe
+        is_author = str(msg.author_id) == user_id
+        is_admin = await self._check_group_admin(str(msg.group_id), user_id, db)
+        if not is_author and not is_admin:
+            raise HTTPException(status_code=403, detail="Vous ne pouvez pas supprimer ce message")
+        await db.delete(msg)
+        await db.commit()
+        return True
+
+    async def send_voice_message(self, group_id: str, user_id: str, audio_url: str, duration: int, db: AsyncSession) -> dict:
+        is_member = await self._check_membership(group_id, user_id, db)
+        if not is_member:
+            raise HTTPException(status_code=403, detail="Vous devez être membre du groupe")
+        msg = GroupMessage(
+            content="[Message vocal]",
+            message_type="voice",
+            audio_url=audio_url,
+            audio_duration=duration,
+            author_id=user_id,
+            group_id=group_id,
+        )
+        db.add(msg)
+        await db.commit()
+        await db.refresh(msg)
+        user_result = await db.execute(select(User).where(User.id == user_id))
+        author = user_result.scalar_one_or_none()
+        return {
+            "id": str(msg.id),
+            "content": msg.content,
+            "message_type": msg.message_type,
+            "audio_url": msg.audio_url,
+            "audio_duration": msg.audio_duration,
             "author_id": str(msg.author_id),
             "author_name": author.full_name if author else "Utilisateur",
             "author_avatar": author.avatar_url if author else None,
             "created_at": msg.created_at.isoformat() if msg.created_at else None,
         }
+
+    async def _check_group_admin(self, group_id: str, user_id: str, db: AsyncSession) -> bool:
+        query = select(group_members).where(
+            and_(
+                group_members.c.group_id == group_id,
+                group_members.c.user_id == user_id,
+                group_members.c.is_active == True,
+                group_members.c.role.in_([GroupRole.OWNER.value, GroupRole.ADMIN.value]),
+            )
+        )
+        result = await db.execute(query)
+        return result.first() is not None
+
+    # ── Gestion des membres ───────────────────────────────────────────────────
+
+    async def add_group_member(self, group_id: str, target_user_id: str, requester_id: str, db: AsyncSession) -> dict:
+        is_admin = await self._check_group_admin(group_id, requester_id, db)
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Seuls les administrateurs peuvent ajouter des membres")
+        is_member = await self._check_membership(group_id, target_user_id, db)
+        if is_member:
+            raise HTTPException(status_code=400, detail="Cet utilisateur est déjà membre")
+        await self._add_member_to_group(group_id, target_user_id, GroupRole.MEMBER, db)
+        query = select(Group).where(Group.id == group_id)
+        result = await db.execute(query)
+        group = result.scalar_one_or_none()
+        if group:
+            group.member_count += 1
+        await db.commit()
+        return {"message": "Membre ajouté au groupe"}
+
+    async def remove_group_member(self, group_id: str, target_user_id: str, requester_id: str, db: AsyncSession) -> dict:
+        if str(requester_id) == str(target_user_id):
+            return await self.leave_group(group_id, requester_id, db)
+        is_admin = await self._check_group_admin(group_id, requester_id, db)
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Seuls les administrateurs peuvent retirer des membres")
+        # Vérifier que la cible n'est pas le propriétaire
+        target_role_query = select(group_members).where(
+            and_(group_members.c.group_id == group_id, group_members.c.user_id == target_user_id)
+        )
+        target_row = await db.execute(target_role_query)
+        target = target_row.fetchone()
+        if target and target.role == GroupRole.OWNER.value:
+            raise HTTPException(status_code=403, detail="Impossible de retirer le propriétaire du groupe")
+        delete_query = group_members.delete().where(
+            and_(group_members.c.group_id == group_id, group_members.c.user_id == target_user_id)
+        )
+        await db.execute(delete_query)
+        query = select(Group).where(Group.id == group_id)
+        result = await db.execute(query)
+        group = result.scalar_one_or_none()
+        if group and group.member_count > 0:
+            group.member_count -= 1
+        await db.commit()
+        return {"message": "Membre retiré du groupe"}
+
+    async def update_member_role(self, group_id: str, target_user_id: str, new_role: str, requester_id: str, db: AsyncSession) -> dict:
+        # Seul le propriétaire peut changer les rôles
+        query = select(group_members).where(
+            and_(group_members.c.group_id == group_id, group_members.c.user_id == requester_id, group_members.c.role == GroupRole.OWNER.value)
+        )
+        owner_row = await db.execute(query)
+        if not owner_row.first():
+            raise HTTPException(status_code=403, detail="Seul le propriétaire peut changer les rôles")
+        if new_role not in [r.value for r in GroupRole]:
+            raise HTTPException(status_code=400, detail="Rôle invalide")
+        update_q = group_members.update().where(
+            and_(group_members.c.group_id == group_id, group_members.c.user_id == target_user_id)
+        ).values(role=new_role)
+        await db.execute(update_q)
+        await db.commit()
+        return {"message": f"Rôle mis à jour: {new_role}"}
 
     # ── Méthodes utilitaires ──────────────────────────────────────────────────
 

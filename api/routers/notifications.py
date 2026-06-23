@@ -23,6 +23,7 @@ class NotificationResponse(BaseModel):
     alert_type: str
     severity: str
     is_read: bool
+    action_url: Optional[str] = None
     created_at: datetime
 
     class Config:

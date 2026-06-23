@@ -33,6 +33,7 @@ class GroupUpdate(BaseModel):
     name: Optional[str] = Field(None, min_length=3, max_length=100)
     description: Optional[str] = None
     type: Optional[str] = None
+    sector: Optional[str] = None
     is_public: Optional[bool] = None
     requires_approval: Optional[bool] = None
     max_members: Optional[int] = None

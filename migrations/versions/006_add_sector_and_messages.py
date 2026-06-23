@@ -1,7 +1,7 @@
 """Ajout du champ sector aux groupes et table group_messages
 
 Revision ID: 006_add_sector_and_messages
-Revises: 005_add_2fa_and_api_keys
+Revises: 005
 Create Date: 2026-06-22 00:00:00.000000
 
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision = '006_add_sector_and_messages'
-down_revision = '005_add_2fa_and_api_keys'
+down_revision = '005'
 branch_labels = None
 depends_on = None
 

@@ -3,6 +3,11 @@ AgriIntel360 - Main FastAPI application entry point
 """
 
 import os
+# Limit BLAS/OpenMP threads BEFORE any numpy/scipy import
+# Prevents "pthread_create failed: Resource temporarily unavailable" on shared hosting
+os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
+os.environ.setdefault('OMP_NUM_THREADS', '1')
+
 import uvicorn
 from contextlib import asynccontextmanager
 from typing import Dict, Any
@@ -35,7 +40,20 @@ async def lifespan(app: FastAPI):
     except Exception as e:
         print(f"⚠️  Database initialization warning (non-fatal): {e}")
 
+    # Start background tasks
+    try:
+        from src.tasks.indicator_sync import start_background_tasks
+        await start_background_tasks(app)
+    except Exception as e:
+        print(f"⚠️  Background task start warning: {e}")
+
     yield
+
+    try:
+        from src.tasks.indicator_sync import stop_background_tasks
+        await stop_background_tasks(app)
+    except Exception as e:
+        print(f"⚠️  Background task stop warning: {e}")
 
     try:
         from config.database import close_db_connections

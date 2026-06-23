@@ -1,7 +1,7 @@
 """Add 2FA fields to users and create api_keys table
 
 Revision ID: 005
-Revises: 004
+Revises: 004_add_registration_fields
 Create Date: 2026-06-22
 
 """
@@ -10,7 +10,7 @@ import sqlalchemy as sa
 from sqlalchemy.dialects import postgresql
 
 revision = "005"
-down_revision = "004"
+down_revision = "004_add_registration_fields"
 branch_labels = None
 depends_on = None
 

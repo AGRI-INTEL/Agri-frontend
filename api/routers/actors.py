@@ -190,6 +190,7 @@ def _format_actor(a: Actor, countries: dict[str, str]) -> dict:
 
     return {
         "id": str(a.id),
+        "user_id": str(a.user_id) if a.user_id else None,
         "name": org or name,
         "slug": f"{a.prenom or ''}.{name}.{str(a.id)[:8]}" if name else str(a.id),
         "role": _enum_val(a.role).lower(),

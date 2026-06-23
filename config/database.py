@@ -96,7 +96,27 @@ async def _add_missing_columns() -> None:
                     column.server_default, "arg"
                 ):
                     arg = column.server_default.arg
-                    if not isinstance(arg, str) or not arg.strip().startswith(":"):
+                    if isinstance(arg, str):
+                        stripped = arg.strip()
+                        if stripped.startswith(":"):
+                            pass  # SQLAlchemy parameter marker, skip
+                        elif "(" in stripped or stripped.startswith("'"):
+                            # SQL function (e.g. now()) or already-quoted literal
+                            server_default = f" DEFAULT {stripped}"
+                        elif stripped.upper() in ("TRUE", "FALSE"):
+                            server_default = f" DEFAULT {stripped}"
+                        elif stripped.lstrip("-").replace(".", "", 1).isdigit():
+                            server_default = f" DEFAULT {stripped}"
+                        else:
+                            # Plain string value — must be SQL-quoted
+                            server_default = f" DEFAULT '{stripped}'"
+                    elif hasattr(arg, "compile"):
+                        compiled = arg.compile(
+                            dialect=sync_conn.dialect,
+                            compile_kwargs={"literal_binds": True},
+                        )
+                        server_default = f" DEFAULT {compiled}"
+                    else:
                         server_default = f" DEFAULT {arg}"
                 quoted_name = f'"{column.name}"'
                 stmt = (
@@ -106,7 +126,16 @@ async def _add_missing_columns() -> None:
                 logger.info(
                     "Schema sync: adding missing column %s.%s", table_name, column.name
                 )
-                sync_conn.execute(text(stmt))
+                try:
+                    sync_conn.execute(text("SAVEPOINT _col_sync"))
+                    sync_conn.execute(text(stmt))
+                    sync_conn.execute(text("RELEASE SAVEPOINT _col_sync"))
+                except Exception as col_exc:
+                    sync_conn.execute(text("ROLLBACK TO SAVEPOINT _col_sync"))
+                    logger.warning(
+                        "Schema sync: could not add column %s.%s: %s",
+                        table_name, column.name, col_exc,
+                    )
 
     async with engine.begin() as conn:
         await conn.run_sync(_sync_add_missing_columns)
