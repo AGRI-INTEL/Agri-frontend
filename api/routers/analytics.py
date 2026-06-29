@@ -1,5 +1,6 @@
 """Analytics API endpoints using real indicator and production data from the database"""
 
+import statistics
 from collections import defaultdict
 from datetime import datetime, timedelta, timezone
 from typing import Dict, List, Optional
@@ -21,6 +22,25 @@ from api.models.sql.agricultural import Alert, MalaboYieldIndicator, StagingWeat
 router = APIRouter()
 
 MAX_LIMIT = 5000
+
+OUTLIER_STD_MULTIPLIER = 4
+MAX_REASONABLE_VALUE = 1_000_000_000_000
+
+def _clean_values(values: List[float]) -> List[float]:
+    if len(values) < 4:
+        return [v for v in values if v <= MAX_REASONABLE_VALUE]
+    median = statistics.median(values)
+    abs_devs = sorted(abs(v - median) for v in values)
+    mad = abs_devs[len(abs_devs) // 2] or statistics.stdev(values) / 1.4826
+    threshold = OUTLIER_STD_MULTIPLIER * max(mad, 1e-9)
+    return [v for v in values if abs(v - median) <= threshold and v <= MAX_REASONABLE_VALUE]
+
+def _enum_display(e) -> str:
+    if e is None:
+        return "N/A"
+    if hasattr(e, "value"):
+        return e.value
+    return str(e)
 
 # ─── Helpers ─────────────────────────────────────────────────────────────
 
@@ -75,7 +95,6 @@ async def _countries(db: AsyncSession) -> List[str]:
 
 @router.get("/overview")
 async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
-    # Fixed: wrap sa_func calls in select()
     indicators = (await db.execute(select(sa_func.count(IndicateurValeur.id)))).scalar() or 0
     actors = (await db.execute(
         select(sa_func.count(Actor.id)).where(Actor.is_active == True)
@@ -101,7 +120,6 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
     valid = health_data.get(True, 0)
     invalid = health_data.get(False, 0)
 
-    # Fixed: wrap min/max in select()
     min_year_val = (await db.execute(select(sa_func.min(IndicateurValeur.annee)))).scalar() or datetime.now(timezone.utc).year
     max_year_val = (await db.execute(select(sa_func.max(IndicateurValeur.annee)))).scalar() or min_year_val
 
@@ -118,7 +136,6 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
     )).all()
 
     if malabo_rows:
-        # Monthly production → actually annual production totals
         annual_prod: Dict[int, float] = defaultdict(float)
         crop_prod: Dict[str, float] = defaultdict(float)
         for r in malabo_rows:
@@ -133,7 +150,6 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
         ]
         total_value = sum(annual_prod.values())
 
-        # Top crops by total production — Fixed field names: name + value
         sorted_crops = sorted(crop_prod.items(), key=lambda x: x[1], reverse=True)
         production_by_crop = [
             {"crop": name, "tonnes": round(total, 0)}
@@ -144,7 +160,6 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
             for name, total in sorted_crops[:8]
         ]
     else:
-        # Fallback to IndicateurValeur
         all_rows = await _query(db, limit=MAX_LIMIT)
 
         annual_data: Dict[int, List[float]] = defaultdict(list)
@@ -152,49 +167,59 @@ async def get_analytics_overview(db: AsyncSession = Depends(get_db)):
             if r.annee and r.valeur_numerique is not None:
                 annual_data[r.annee].append(float(r.valeur_numerique))
 
-        monthly_production = [
-            {"year": str(yr), "value": round(sum(v) / len(v), 2)}
-            for yr, v in sorted(annual_data.items())
-        ]
-        total_value = sum(sum(v) for v in annual_data.values())
+        monthly_production = []
+        for yr, v in sorted(annual_data.items()):
+            cleaned = _clean_values(v)
+            if cleaned:
+                monthly_production.append({
+                    "year": str(yr),
+                    "value": round(sum(cleaned) / len(cleaned), 2),
+                })
+        total_value = sum(sum(_clean_values(v)) for v in annual_data.values())
 
         sectors_data = (await db.execute(
             select(IndicateurValeur.sous_secteur, sa_func.count(IndicateurValeur.id))
             .group_by(IndicateurValeur.sous_secteur)
         )).all()
-        # Fixed field names: crop + tonnes
         production_by_crop = [
-            {"crop": r[0].value if hasattr(r[0], "value") else str(r[0]), "tonnes": r[1]}
+            {"crop": _enum_display(r[0]), "tonnes": r[1]}
             for r in sectors_data
         ]
 
         type_avg_vals: Dict[str, List[float]] = defaultdict(list)
         for r in all_rows:
             if r.annee and r.valeur_numerique is not None and r.type_indicateur:
-                type_avg_vals[str(r.type_indicateur)].append(float(r.valeur_numerique))
+                cleaned = _clean_values([float(r.valeur_numerique)])
+                if cleaned:
+                    type_avg_vals[_enum_display(r.type_indicateur)].append(cleaned[0])
 
-        # Fixed field names: name + value
         top_crops = sorted(
             [{"name": t, "value": round(sum(v) / len(v), 2)} for t, v in type_avg_vals.items()],
             key=lambda x: x["value"],
             reverse=True,
         )[:8]
 
-    # Growth calculation from IndicateurValeur
+    # Growth calculation per type_indicateur with outlier filtering
     all_rows = await _query(db, limit=MAX_LIMIT)
     type_year_vals: Dict[str, Dict[int, List[float]]] = defaultdict(lambda: defaultdict(list))
     for r in all_rows:
         if r.annee and r.valeur_numerique is not None:
-            key = str(r.type_indicateur) if r.type_indicateur else "unknown"
-            type_year_vals[key][r.annee].append(float(r.valeur_numerique))
+            key = _enum_display(r.type_indicateur) if r.type_indicateur else "unknown"
+            cleaned = _clean_values([float(r.valeur_numerique)])
+            if cleaned:
+                type_year_vals[key][r.annee].append(cleaned[0])
 
     growth_rates = []
     for t, yr_vals in type_year_vals.items():
         sorted_yrs = sorted(yr_vals.keys())
         if len(sorted_yrs) >= 2:
             for i in range(1, len(sorted_yrs)):
-                prev_avg = sum(yr_vals[sorted_yrs[i - 1]]) / len(yr_vals[sorted_yrs[i - 1]])
-                curr_avg = sum(yr_vals[sorted_yrs[i]]) / len(yr_vals[sorted_yrs[i]])
+                prev_vals = _clean_values(yr_vals[sorted_yrs[i - 1]])
+                curr_vals = _clean_values(yr_vals[sorted_yrs[i]])
+                if not prev_vals or not curr_vals:
+                    continue
+                prev_avg = sum(prev_vals) / len(prev_vals)
+                curr_avg = sum(curr_vals) / len(curr_vals)
                 if prev_avg > 0:
                     growth_rates.append((curr_avg - prev_avg) / prev_avg)
 
@@ -232,7 +257,6 @@ async def get_production_trends(
     now_year = datetime.now(timezone.utc).year
     min_year = now_year - lookback
 
-    # Try MalaboYieldIndicator first (real production data)
     q = (
         select(
             MalaboYieldIndicator.year,
@@ -257,7 +281,6 @@ async def get_production_trends(
         ]
         return {"crop": crop, "period": period, "data": data, "unit": "tonnes"}
 
-    # Fallback to IndicateurValeur
     rows = await _query(
         db,
         type_indicateurs=[
@@ -274,10 +297,11 @@ async def get_production_trends(
         if r.annee and r.valeur_numerique is not None:
             by_year[r.annee].append(float(r.valeur_numerique))
 
-    data = [
-        {"date": str(yr), "value": round(sum(vals) / len(vals), 2)}
-        for yr, vals in sorted(by_year.items())
-    ]
+    data = []
+    for yr, vals in sorted(by_year.items()):
+        cleaned = _clean_values(vals)
+        if cleaned:
+            data.append({"date": str(yr), "value": round(sum(cleaned) / len(cleaned), 2)})
 
     return {"crop": crop, "period": period, "data": data, "unit": "valeur moyenne"}
 
@@ -308,10 +332,11 @@ async def get_price_trends(
         if r.annee and r.valeur_numerique is not None:
             by_year[r.annee].append(float(r.valeur_numerique))
 
-    data = [
-        {"date": str(yr), "price": round(sum(vals) / len(vals), 2), "crop": crop}
-        for yr, vals in sorted(by_year.items())
-    ]
+    data = []
+    for yr, vals in sorted(by_year.items()):
+        cleaned = _clean_values(vals)
+        if cleaned:
+            data.append({"date": str(yr), "price": round(sum(cleaned) / len(cleaned), 2), "crop": crop})
 
     return {"crop": crop, "period": period, "data": data, "unit": "valeur moyenne (XOF)"}
 
@@ -330,7 +355,6 @@ async def get_weather_trends(
     now_year = datetime.now(timezone.utc).year
     min_year_val = now_year - lookback
 
-    # Try real StagingWeather data first
     try:
         weather_q = (
             select(
@@ -376,42 +400,17 @@ async def get_weather_trends(
     except Exception:
         pass
 
-    # Fallback: use IndicateurValeur as proxy indicator trend
-    rows = await _query(
-        db,
-        countries=[country],
-        type_indicateurs=[
-            TypeIndicateurEnum.REVENU_ANNUEL,
-            TypeIndicateurEnum.CHIFFRE_AFFAIRES,
-            TypeIndicateurEnum.VALEUR_AJOUTEE,
-        ],
-        min_year=min_year_val,
-        limit=1000,
-    )
-
-    by_year: Dict[int, List[float]] = defaultdict(list)
-    for r in rows:
-        if r.annee and r.valeur_numerique is not None:
-            by_year[r.annee].append(float(r.valeur_numerique))
-
-    # Fixed: field key is "temperature" (not "value") to match frontend dataKey
-    temperature = [
-        {"date": str(yr), "temperature": round(sum(vals) / len(vals), 2)}
-        for yr, vals in sorted(by_year.items())
-    ]
-    all_temps = [t["temperature"] for t in temperature]
-
     return {
         "country": country,
         "period": period,
-        "temperature": temperature,
-        "precipitation": [],  # No precipitation fallback data available
+        "temperature": [],
+        "precipitation": [],
         "summary": {
-            "avg_temp": round(sum(all_temps) / max(len(all_temps), 1), 2),
-            "avg_precip": 0,
-            "max_temp": max(all_temps, default=0),
-            "min_temp": min(all_temps, default=0),
-            "data_points": len(temperature),
+            "avg_temp": None,
+            "avg_precip": None,
+            "max_temp": None,
+            "min_temp": None,
+            "data_points": 0,
         },
     }
 
@@ -428,7 +427,6 @@ async def compare_countries(
 ):
     country_list = [c.strip() for c in countries.split(",") if c.strip()]
 
-    # Try MalaboYieldIndicator for real production comparison
     q = (
         select(
             MalaboYieldIndicator.country_name,
@@ -462,7 +460,6 @@ async def compare_countries(
             "unit": "tonnes",
         }
 
-    # Fallback to IndicateurValeur
     rows = await _query(db, countries=country_list, limit=MAX_LIMIT)
 
     groups: Dict[str, Dict[int, List[float]]] = defaultdict(lambda: defaultdict(list))
@@ -473,10 +470,12 @@ async def compare_countries(
     comparison = {}
     for c in country_list:
         years_data = groups.get(c, {})
-        comparison[c] = [
-            {"year": yr, "value": round(sum(vals) / len(vals), 2)}
-            for yr, vals in sorted(years_data.items())
-        ]
+        country_data = []
+        for yr, vals in sorted(years_data.items()):
+            cleaned = _clean_values(vals)
+            if cleaned:
+                country_data.append({"year": yr, "value": round(sum(cleaned) / len(cleaned), 2)})
+        comparison[c] = country_data
 
     return {
         "comparison": comparison,
@@ -496,7 +495,6 @@ async def get_production_analytics(
     year: Optional[int] = None,
     db: AsyncSession = Depends(get_db),
 ):
-    # Try MalaboYieldIndicator first
     q = select(MalaboYieldIndicator).where(
         MalaboYieldIndicator.production_tonnes != None
     )
@@ -521,7 +519,6 @@ async def get_production_analytics(
         ]
         return {"summary": {"total": round(total, 2), "count": len(data)}, "data": data[:100]}
 
-    # Fallback to IndicateurValeur
     rows = await _query(
         db,
         countries=[country] if country else None,
@@ -538,12 +535,16 @@ async def get_production_analytics(
     for r in rows:
         if r.valeur_numerique is not None:
             val = float(r.valeur_numerique)
+            cleaned = _clean_values([val])
+            if not cleaned:
+                continue
+            val = cleaned[0]
             if year and r.annee != year:
                 continue
             total += val
             data.append({
                 "year": r.annee,
-                "crop_name": str(r.type_indicateur) if r.type_indicateur else "N/A",
+                "crop_name": _enum_display(r.type_indicateur),
                 "country_name": r.pays or country or "N/A",
                 "production_tonnes": val,
             })

@@ -64,10 +64,11 @@ class RateLimiter:
         self.window = 60  # 1 minute window
 
     async def is_rate_limited(self, key: str) -> bool:
-        current = await self.redis.increment(key)
-        if current == 1:
-            await self.redis.set(key, current, expire=self.window)
-        
+        pipe = self.redis.client.pipeline()
+        pipe.incr(key)
+        pipe.expire(key, self.window)
+        results = await pipe.execute()
+        current = results[0]
         if current > self.rate_limit:
             raise HTTPException(
                 status_code=status.HTTP_429_TOO_MANY_REQUESTS,

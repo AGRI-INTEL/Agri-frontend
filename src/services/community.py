@@ -8,10 +8,11 @@ from uuid import UUID
 
 from fastapi import HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, and_, or_, desc, cast, String as SAString
+from sqlalchemy import select, func, and_, or_, desc, cast, text, String as SAString
 from sqlalchemy.orm import selectinload, joinedload
 
 from config.database import get_db
+from src.services.messaging import _to_uuid
 from api.models.sql.community import (
     Group, GroupMessage, Post, Comment, Reaction, GroupInvitation, GroupJoinRequest,
     GroupRole, group_members
@@ -59,7 +60,7 @@ class CommunityService:
         return await self._group_to_response(group, user_id, db)
 
     async def get_group(self, group_id: str, user_id: str, db: AsyncSession) -> Optional[GroupDetailResponse]:
-        query = select(Group).where(Group.id == group_id)
+        query = select(Group).where(Group.id == _to_uuid(group_id))
         result = await db.execute(query)
         group = result.scalar_one_or_none()
 
@@ -74,7 +75,7 @@ class CommunityService:
         return await self._group_to_detail_response(group, user_id, db)
 
     async def join_group(self, group_id: str, user_id: str, message: Optional[str] = None, db: AsyncSession = None) -> Dict[str, Any]:
-        query = select(Group).where(Group.id == group_id)
+        query = select(Group).where(Group.id == _to_uuid(group_id))
         result = await db.execute(query)
         group = result.scalar_one_or_none()
 
@@ -110,14 +111,14 @@ class CommunityService:
             author_id=user_id,
             group_id=str(post_data.group_id),
             parent_id=str(post_data.parent_id) if post_data.parent_id else None,
-            published_at=datetime.now(),
+            published_at=datetime.now(timezone.utc),
         )
 
         db.add(post)
         await db.flush()
 
         # Incrémenter post_count du groupe
-        group_result = await db.execute(select(Group).where(Group.id == str(post_data.group_id)))
+        group_result = await db.execute(select(Group).where(Group.id == _to_uuid(post_data.group_id)))
         group = group_result.scalar_one_or_none()
         if group:
             group.post_count = (group.post_count or 0) + 1
@@ -134,7 +135,7 @@ class CommunityService:
         return await self._post_to_response(post, user_id, db)
 
     async def update_group(self, group_id: str, group_update, user_id: str, db: AsyncSession) -> Optional[GroupResponse]:
-        query = select(Group).where(Group.id == group_id)
+        query = select(Group).where(Group.id == _to_uuid(group_id))
         result = await db.execute(query)
         group = result.scalar_one_or_none()
         if not group:
@@ -153,10 +154,10 @@ class CommunityService:
         if not is_member:
             return False
         delete_query = group_members.delete().where(
-            and_(group_members.c.group_id == group_id, group_members.c.user_id == user_id)
+            and_(group_members.c.group_id == _to_uuid(group_id), group_members.c.user_id == _to_uuid(user_id))
         )
         await db.execute(delete_query)
-        query = select(Group).where(Group.id == group_id)
+        query = select(Group).where(Group.id == _to_uuid(group_id))
         result = await db.execute(query)
         group = result.scalar_one_or_none()
         if group and group.member_count > 0:
@@ -166,7 +167,7 @@ class CommunityService:
 
     async def delete_group(self, group_id: str, user_id: str, db: AsyncSession) -> bool:
         """Delete a group entirely. Only the owner (created_by) can do this."""
-        query = select(Group).where(Group.id == group_id)
+        query = select(Group).where(Group.id == _to_uuid(group_id))
         result = await db.execute(query)
         group = result.scalar_one_or_none()
         if not group:
@@ -219,7 +220,7 @@ class CommunityService:
         }
 
     async def get_posts(self, group_id: str, user_id: str, page: int, per_page: int, db: AsyncSession):
-        query = select(Post).where(and_(Post.group_id == group_id, Post.is_published == True))
+        query = select(Post).where(and_(Post.group_id == _to_uuid(group_id), Post.is_published == True))
         total_result = await db.execute(select(func.count()).select_from(query.subquery()))
         total = total_result.scalar()
         offset = (page - 1) * per_page
@@ -301,7 +302,7 @@ class CommunityService:
         }
 
     async def get_post(self, post_id: str, user_id: str, db: AsyncSession) -> Optional[PostResponse]:
-        result = await db.execute(select(Post).where(Post.id == post_id))
+        result = await db.execute(select(Post).where(Post.id == _to_uuid(post_id)))
         post = result.scalar_one_or_none()
         if not post:
             return None
@@ -310,7 +311,7 @@ class CommunityService:
         return await self._post_to_response(post, user_id, db)
 
     async def update_post(self, post_id: str, post_update, user_id: str, db: AsyncSession) -> Optional[PostResponse]:
-        result = await db.execute(select(Post).where(Post.id == post_id))
+        result = await db.execute(select(Post).where(Post.id == _to_uuid(post_id)))
         post = result.scalar_one_or_none()
         if not post:
             return None
@@ -323,7 +324,7 @@ class CommunityService:
         return await self._post_to_response(post, user_id, db)
 
     async def delete_post(self, post_id: str, user_id: str, db: AsyncSession) -> bool:
-        result = await db.execute(select(Post).where(Post.id == post_id))
+        result = await db.execute(select(Post).where(Post.id == _to_uuid(post_id)))
         post = result.scalar_one_or_none()
         if not post:
             return False
@@ -341,8 +342,8 @@ class CommunityService:
     async def add_reaction(self, reaction_data, user_id: str, db: AsyncSession, post_id: str = None, comment_id: str = None) -> dict:
         existing_query = select(Reaction).where(
             and_(
-                Reaction.user_id == user_id,
-                Reaction.post_id == post_id if post_id else Reaction.comment_id == comment_id,
+                Reaction.user_id == _to_uuid(user_id),
+                Reaction.post_id == _to_uuid(post_id) if post_id else (Reaction.comment_id == _to_uuid(comment_id) if comment_id else text('false')),
             )
         )
         existing_result = await db.execute(existing_query)
@@ -365,7 +366,7 @@ class CommunityService:
         )
         db.add(comment)
         # Incrémenter comment_count du post
-        post_result = await db.execute(select(Post).where(Post.id == str(comment_data.post_id)))
+        post_result = await db.execute(select(Post).where(Post.id == _to_uuid(comment_data.post_id)))
         post = post_result.scalar_one_or_none()
         if post:
             post.comment_count = (post.comment_count or 0) + 1
@@ -376,14 +377,14 @@ class CommunityService:
     async def get_post_comments(self, post_id: str, user_id: str, db: AsyncSession) -> list:
         result = await db.execute(
             select(Comment).where(
-                and_(Comment.post_id == post_id, Comment.parent_id == None, Comment.is_deleted == False)
+                and_(Comment.post_id == _to_uuid(post_id), Comment.parent_id == None, Comment.is_deleted == False)
             ).order_by(Comment.created_at.asc())
         )
         comments = result.scalars().all()
         return [await self._comment_to_response(c, db) for c in comments]
 
     async def update_comment(self, comment_id: str, comment_update, user_id: str, db: AsyncSession):
-        result = await db.execute(select(Comment).where(Comment.id == comment_id))
+        result = await db.execute(select(Comment).where(Comment.id == _to_uuid(comment_id)))
         comment = result.scalar_one_or_none()
         if not comment:
             return None
@@ -396,7 +397,7 @@ class CommunityService:
         return await self._comment_to_response(comment, db)
 
     async def delete_comment(self, comment_id: str, user_id: str, db: AsyncSession) -> bool:
-        result = await db.execute(select(Comment).where(Comment.id == comment_id))
+        result = await db.execute(select(Comment).where(Comment.id == _to_uuid(comment_id)))
         comment = result.scalar_one_or_none()
         if not comment:
             return False
@@ -414,14 +415,18 @@ class CommunityService:
     # ── Messages de chat ──────────────────────────────────────────────────────
 
     async def get_group_messages(self, group_id: str, limit: int, user_id: str, db: AsyncSession) -> list:
+        is_member = await self._check_membership(group_id, user_id, db)
+        if not is_member:
+            raise HTTPException(status_code=403, detail="Vous devez être membre du groupe pour voir le chat")
         result = await db.execute(
             select(GroupMessage, User)
             .join(User, User.id == GroupMessage.author_id)
-            .where(GroupMessage.group_id == group_id)
-            .order_by(GroupMessage.created_at.asc())
+            .where(GroupMessage.group_id == _to_uuid(group_id))
+            .order_by(GroupMessage.created_at.desc())
             .limit(limit)
         )
         rows = result.all()
+        # Return in chronological order (oldest first) for display
         return [
             {
                 "id": str(m.id),
@@ -435,7 +440,7 @@ class CommunityService:
                 "author_avatar": u.avatar_url,
                 "created_at": m.created_at.isoformat() if m.created_at else None,
             }
-            for m, u in rows
+            for m, u in reversed(rows)
         ]
 
     async def send_group_message(self, group_id: str, user_id: str, content: str, db: AsyncSession) -> dict:
@@ -454,7 +459,7 @@ class CommunityService:
         await db.refresh(msg)
 
         # Récupérer l'auteur
-        user_result = await db.execute(select(User).where(User.id == user_id))
+        user_result = await db.execute(select(User).where(User.id == _to_uuid(user_id)))
         author = user_result.scalar_one_or_none()
 
         return {
@@ -474,8 +479,8 @@ class CommunityService:
         """Notifie tous les membres d'un groupe sauf l'auteur qu'un nouveau post a été créé"""
         query = select(group_members.c.user_id).where(
             and_(
-                group_members.c.group_id == group_id,
-                group_members.c.user_id != author_id,
+                group_members.c.group_id == _to_uuid(group_id),
+                group_members.c.user_id != _to_uuid(author_id),
                 group_members.c.is_active == True,
             )
         )
@@ -501,7 +506,7 @@ class CommunityService:
     # ── Gestion des messages (chat) ────────────────────────────────────────────
 
     async def edit_group_message(self, message_id: str, content: str, user_id: str, db: AsyncSession) -> Optional[dict]:
-        result = await db.execute(select(GroupMessage).where(GroupMessage.id == message_id))
+        result = await db.execute(select(GroupMessage).where(GroupMessage.id == _to_uuid(message_id)))
         msg = result.scalar_one_or_none()
         if not msg:
             return None
@@ -511,7 +516,7 @@ class CommunityService:
         msg.is_edited = True
         await db.commit()
         await db.refresh(msg)
-        user_result = await db.execute(select(User).where(User.id == user_id))
+        user_result = await db.execute(select(User).where(User.id == _to_uuid(user_id)))
         author = user_result.scalar_one_or_none()
         return {
             "id": str(msg.id),
@@ -525,7 +530,7 @@ class CommunityService:
         }
 
     async def delete_group_message(self, message_id: str, user_id: str, db: AsyncSession) -> bool:
-        result = await db.execute(select(GroupMessage).where(GroupMessage.id == message_id))
+        result = await db.execute(select(GroupMessage).where(GroupMessage.id == _to_uuid(message_id)))
         msg = result.scalar_one_or_none()
         if not msg:
             return False
@@ -553,7 +558,7 @@ class CommunityService:
         db.add(msg)
         await db.commit()
         await db.refresh(msg)
-        user_result = await db.execute(select(User).where(User.id == user_id))
+        user_result = await db.execute(select(User).where(User.id == _to_uuid(user_id)))
         author = user_result.scalar_one_or_none()
         return {
             "id": str(msg.id),
@@ -570,8 +575,8 @@ class CommunityService:
     async def _check_group_admin(self, group_id: str, user_id: str, db: AsyncSession) -> bool:
         query = select(group_members).where(
             and_(
-                group_members.c.group_id == group_id,
-                group_members.c.user_id == user_id,
+                group_members.c.group_id == _to_uuid(group_id),
+                group_members.c.user_id == _to_uuid(user_id),
                 group_members.c.is_active == True,
                 group_members.c.role.in_([GroupRole.OWNER.value, GroupRole.ADMIN.value]),
             )
@@ -589,7 +594,7 @@ class CommunityService:
         if is_member:
             raise HTTPException(status_code=400, detail="Cet utilisateur est déjà membre")
         await self._add_member_to_group(group_id, target_user_id, GroupRole.MEMBER, db)
-        query = select(Group).where(Group.id == group_id)
+        query = select(Group).where(Group.id == _to_uuid(group_id))
         result = await db.execute(query)
         group = result.scalar_one_or_none()
         if group:
@@ -605,17 +610,17 @@ class CommunityService:
             raise HTTPException(status_code=403, detail="Seuls les administrateurs peuvent retirer des membres")
         # Vérifier que la cible n'est pas le propriétaire
         target_role_query = select(group_members).where(
-            and_(group_members.c.group_id == group_id, group_members.c.user_id == target_user_id)
+            and_(group_members.c.group_id == _to_uuid(group_id), group_members.c.user_id == _to_uuid(target_user_id))
         )
         target_row = await db.execute(target_role_query)
         target = target_row.fetchone()
         if target and target.role == GroupRole.OWNER.value:
             raise HTTPException(status_code=403, detail="Impossible de retirer le propriétaire du groupe")
         delete_query = group_members.delete().where(
-            and_(group_members.c.group_id == group_id, group_members.c.user_id == target_user_id)
+            and_(group_members.c.group_id == _to_uuid(group_id), group_members.c.user_id == _to_uuid(target_user_id))
         )
         await db.execute(delete_query)
-        query = select(Group).where(Group.id == group_id)
+        query = select(Group).where(Group.id == _to_uuid(group_id))
         result = await db.execute(query)
         group = result.scalar_one_or_none()
         if group and group.member_count > 0:
@@ -626,7 +631,7 @@ class CommunityService:
     async def update_member_role(self, group_id: str, target_user_id: str, new_role: str, requester_id: str, db: AsyncSession) -> dict:
         # Seul le propriétaire peut changer les rôles
         query = select(group_members).where(
-            and_(group_members.c.group_id == group_id, group_members.c.user_id == requester_id, group_members.c.role == GroupRole.OWNER.value)
+            and_(group_members.c.group_id == _to_uuid(group_id), group_members.c.user_id == _to_uuid(requester_id), group_members.c.role == GroupRole.OWNER.value)
         )
         owner_row = await db.execute(query)
         if not owner_row.first():
@@ -634,34 +639,66 @@ class CommunityService:
         if new_role not in [r.value for r in GroupRole]:
             raise HTTPException(status_code=400, detail="Rôle invalide")
         update_q = group_members.update().where(
-            and_(group_members.c.group_id == group_id, group_members.c.user_id == target_user_id)
+            and_(group_members.c.group_id == _to_uuid(group_id), group_members.c.user_id == _to_uuid(target_user_id))
         ).values(role=new_role)
         await db.execute(update_q)
         await db.commit()
         return {"message": f"Rôle mis à jour: {new_role}"}
+
+    async def report_member(self, group_id: str, target_user_id: str, reporter_id: str,
+                             reason: str, description: str, db: AsyncSession) -> dict:
+        """Signaler un membre du groupe."""
+        if str(reporter_id) == str(target_user_id):
+            raise HTTPException(status_code=400, detail="Vous ne pouvez pas vous signaler vous-même")
+        is_member = await self._check_membership(group_id, reporter_id, db)
+        if not is_member:
+            raise HTTPException(status_code=403, detail="Vous devez être membre du groupe")
+        # Stocker le signalement comme alerte admin
+        try:
+            alert = Alert(
+                title=f"Signalement membre groupe",
+                message=f"Motif: {reason}. {description}. Groupe: {group_id}. Cible: {target_user_id}. Signalé par: {reporter_id}",
+                alert_type="security",
+                severity="medium",
+                user_id=_to_uuid(reporter_id),
+                action_url=f"/admin/groups/{group_id}/members/{target_user_id}",
+            )
+            db.add(alert)
+            await db.commit()
+        except Exception:
+            pass
+        return {"message": "Signalement envoyé aux administrateurs", "status": "reported"}
 
     # ── Méthodes utilitaires ──────────────────────────────────────────────────
 
     async def _add_member_to_group(self, group_id: str, user_id: str, role: GroupRole, db: AsyncSession) -> None:
         insert_query = group_members.insert().values(
             group_id=group_id, user_id=user_id, role=role.value,
-            joined_at=datetime.now(), last_activity=datetime.now(),
+            joined_at=datetime.now(timezone.utc), last_activity=datetime.now(timezone.utc),
         )
         await db.execute(insert_query)
 
     async def _check_membership(self, group_id: str, user_id: str, db: AsyncSession) -> bool:
         query = select(group_members).where(
             and_(
-                group_members.c.group_id == group_id,
-                group_members.c.user_id == user_id,
+                group_members.c.group_id == _to_uuid(group_id),
+                group_members.c.user_id == _to_uuid(user_id),
                 group_members.c.is_active == True,
             )
         )
         result = await db.execute(query)
         return result.first() is not None
 
-    async def get_group_members(self, group_id: str, db: AsyncSession) -> list:
+    async def get_group_members(self, group_id: str, db: AsyncSession, requesting_user_id: str = None) -> list:
         from api.schemas.community import GroupMemberInfo
+        # For private groups, only members can see the member list
+        if requesting_user_id:
+            group_result = await db.execute(select(Group).where(Group.id == _to_uuid(group_id)))
+            group = group_result.scalar_one_or_none()
+            if group and not group.is_public:
+                is_member = await self._check_membership(group_id, requesting_user_id, db)
+                if not is_member:
+                    raise HTTPException(status_code=403, detail="Accès refusé aux membres de ce groupe privé")
         query = (
             select(
                 group_members.c.user_id,
@@ -675,7 +712,7 @@ class CommunityService:
             )
             .select_from(group_members)
             .join(User, User.id == group_members.c.user_id)
-            .where(group_members.c.group_id == group_id, group_members.c.is_active == True)
+            .where(group_members.c.group_id == _to_uuid(group_id), group_members.c.is_active == True)
         )
         result = await db.execute(query)
         rows = result.fetchall()
@@ -741,6 +778,8 @@ class CommunityService:
 
         return PostResponse(
             id=post.id, title=post.title, content=post.content, type=post.type,
+            metadata=post.metadata,
+            tags=post.tags,
             author_id=post.author_id,
             author_name=author.full_name or author.username if author else "Utilisateur inconnu",
             author_avatar=author.avatar_url if author else None,

@@ -24,12 +24,6 @@ settings = get_settings()
 bearer_scheme = HTTPBearer()
 
 
-async def get_user(user_id: int, db: AsyncSession = Depends(get_db)) -> Optional[User]:
-    query = select(User).where(User.id == user_id)
-    result = await db.execute(query)
-    return result.scalar_one_or_none()
-
-
 class AuthService:
     """Authentication service"""
 
@@ -39,7 +33,10 @@ class AuthService:
 
     @staticmethod
     def hash_password(password: str) -> str:
-        return _bcrypt_lib.hashpw(password.encode("utf-8"), _bcrypt_lib.gensalt()).decode("utf-8")
+        return _bcrypt_lib.hashpw(
+            password.encode("utf-8"),
+            _bcrypt_lib.gensalt(rounds=settings.BCRYPT_ROUNDS),
+        ).decode("utf-8")
 
     @staticmethod
     def create_access_token(data: dict, expires_delta: Optional[timedelta] = None) -> str:
@@ -124,13 +121,31 @@ class AuthService:
         user = await AuthService.get_user_by_username(db, username)
         if not user:
             user = await AuthService.get_user_by_email(db, username)
-        if not user or not AuthService.verify_password(password, user.hashed_password):
+        if not user:
             return None
+        if user.locked_until and user.locked_until > datetime.now(timezone.utc):
+            raise HTTPException(
+                status_code=status.HTTP_423_LOCKED,
+                detail="Account is temporarily locked due to failed login attempts",
+                headers={"WWW-Authenticate": "Bearer"},
+            )
         if not user.is_active:
             raise HTTPException(
                 status_code=status.HTTP_400_BAD_REQUEST,
                 detail="Account is deactivated",
             )
+        if not user.is_verified:
+            raise HTTPException(
+                status_code=status.HTTP_400_BAD_REQUEST,
+                detail="Email not verified",
+            )
+        if not user.hashed_password:
+            return None
+        try:
+            if not AuthService.verify_password(password, user.hashed_password):
+                return None
+        except Exception:
+            return None
         user.last_login = datetime.now(timezone.utc)
         user.failed_login_attempts = 0
         await db.commit()

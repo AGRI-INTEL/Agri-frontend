@@ -7,7 +7,7 @@ import uuid
 from datetime import datetime
 from typing import Optional
 
-from sqlalchemy import (Boolean, Column, DateTime, Enum, Float, ForeignKey, Index, Integer,
+from sqlalchemy import (Boolean, Column, DateTime, Enum as SAEnum, Float, ForeignKey, Index, Integer,
                        String, Text, UniqueConstraint)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
@@ -57,12 +57,12 @@ class FileShare(Base):
     original_name = Column(String(255), nullable=False)
     filename = Column(String(255), nullable=False, unique=True)
     mime_type = Column(String(100), nullable=False)
-    file_type = Column(Enum(FileType), nullable=False)
+    file_type = Column(SAEnum(FileType, native_enum=False), nullable=False)
     file_size = Column(Integer, nullable=False)  # en octets
     
     # Chemin et stockage
     file_path = Column(String(500), nullable=False)
-    storage_provider = Column(Enum(StorageProvider), default=StorageProvider.LOCAL, nullable=False)
+    storage_provider = Column(SAEnum(StorageProvider, native_enum=False), default=StorageProvider.LOCAL, nullable=False)
     storage_url = Column(String(1000), nullable=True)
     
     # Métadonnées
@@ -82,7 +82,7 @@ class FileShare(Base):
     view_count = Column(Integer, default=0, nullable=False)
     
     # Statut et traitement
-    status = Column(Enum(FileStatus), default=FileStatus.UPLOADING, nullable=False)
+    status = Column(SAEnum(FileStatus, native_enum=False), default=FileStatus.UPLOADING, nullable=False)
     processing_progress = Column(Float, default=0.0, nullable=False)  # 0.0 à 1.0
     error_message = Column(Text, nullable=True)
     

@@ -178,7 +178,7 @@ async def get_group_members(
     current_user: User = Depends(get_current_verified_user),
     db: AsyncSession = Depends(get_db),
 ):
-    return await community_service.get_group_members(group_id, db)
+    return await community_service.get_group_members(group_id, db, requesting_user_id=str(current_user.id))
 
 
 # ── Messages de groupe (Chat) ──────────────────────────────────────────────────
@@ -281,6 +281,24 @@ async def remove_group_member(
     )
 
 
+@router.post("/groups/{group_id}/members/{user_id}/report")
+async def report_group_member(
+    group_id: str,
+    user_id: str,
+    data: dict,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Signaler un membre du groupe."""
+    reason = data.get("reason", "").strip()
+    description = data.get("description", "").strip()
+    if not reason:
+        raise HTTPException(status_code=400, detail="Motif requis")
+    return await community_service.report_member(
+        group_id, user_id, str(current_user.id), reason, description, db
+    )
+
+
 @router.put("/groups/{group_id}/members/{user_id}/role")
 async def update_member_role(
     group_id: str,
@@ -319,11 +337,16 @@ async def get_group_meetups(
     db: AsyncSession = Depends(get_db),
 ):
     """List all event-type posts in a group."""
+    import uuid as _uuid
     from sqlalchemy import select, desc
     from api.models.sql.community import Post
+    try:
+        group_uuid = _uuid.UUID(group_id)
+    except ValueError:
+        raise HTTPException(status_code=404, detail="Groupe non trouvé")
     query = (
         select(Post)
-        .where(Post.group_id == group_id, Post.type == "event", Post.is_published == True)
+        .where(Post.group_id == group_uuid, Post.type == "event", Post.is_published == True)
         .order_by(desc(Post.created_at))
         .offset((page - 1) * per_page)
         .limit(per_page)

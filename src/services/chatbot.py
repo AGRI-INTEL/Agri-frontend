@@ -140,14 +140,13 @@ class AgriChatbot:
         if self._db_engine is None:
             try:
                 sync_url = self.settings.DATABASE_URL
-                # Ensure a sync-compatible driver is used (strip async driver prefix if present)
                 if sync_url.startswith("postgresql+asyncpg://"):
                     sync_url = sync_url.replace("postgresql+asyncpg://", "postgresql+psycopg2://", 1)
                 elif sync_url.startswith("postgresql://"):
                     sync_url = sync_url.replace("postgresql://", "postgresql+psycopg2://", 1)
                 self._db_engine = create_engine(sync_url, pool_pre_ping=True)
             except Exception as e:
-                logger.warning(f"DB engine creation failed: {e}")
+                logger.warning("DB engine creation failed: %s", e)
         return self._db_engine
 
     def _get_history(self, user_id: str) -> List[Dict[str, str]]:
@@ -162,9 +161,17 @@ class AgriChatbot:
 
     def _is_safe_query(self, sql: str) -> bool:
         sql_lower = sql.lower().strip()
-        if not sql_lower.startswith("select"): return False
+        if not sql_lower.startswith("select"):
+            return False
         for kw in FORBIDDEN_SQL_KEYWORDS:
-            if kw in sql_lower: return False
+            if kw in sql_lower:
+                return False
+        # Ensure only allowed tables are referenced
+        import re as _re
+        table_refs = _re.findall(r'\b(from|join)\s+(\w+)', sql_lower)
+        for _, tbl in table_refs:
+            if tbl not in ALLOWED_TABLES:
+                return False
         return True
 
     def _extract_sql(self, text: str) -> Optional[str]:
@@ -174,11 +181,15 @@ class AgriChatbot:
         return match.group(1).strip() if match else None
 
     async def _execute_sql(self, sql: str) -> Optional[List[Dict]]:
-        if not self._is_safe_query(sql): return None
+        if not self._is_safe_query(sql):
+            return None
         engine = self._get_db_engine()
-        if not engine: return None
+        if not engine:
+            return None
         try:
             with engine.connect() as conn:
+                conn.execution_options(isolation_level="AUTOCOMMIT")
+                conn.execute(text("SET TRANSACTION READ ONLY"))
                 result = conn.execute(text(sql))
                 cols = list(result.keys())
                 return [dict(zip(cols, row)) for row in result.fetchmany(100)]

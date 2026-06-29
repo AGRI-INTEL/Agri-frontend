@@ -254,22 +254,28 @@ async def fetch_all_wb_indicators() -> Dict[str, Any]:
                 tasks.append(fetch_wb_indicator(country, indicator, client))
 
         batches = [tasks[i:i + 25] for i in range(0, len(tasks), 25)]
-        for batch in batches:
-            batch_results = await asyncio.gather(*batch, return_exceptions=True)
-            for br in batch_results:
-                if isinstance(br, list):
-                    results.extend(br)
-                elif isinstance(br, Exception):
-                    errors.append(str(br)[:80])
+        try:
+            for batch in batches:
+                batch_results = await asyncio.gather(*batch, return_exceptions=True)
+                for br in batch_results:
+                    if isinstance(br, list):
+                        results.extend(br)
+                    elif isinstance(br, Exception):
+                        errors.append(str(br)[:80])
+        except asyncio.CancelledError:
+            # Close all pending coroutines to avoid "was never awaited" warning
+            for remaining_tasks in batches:
+                for t in remaining_tasks:
+                    t.close()
+            raise
 
     return {"results": results, "errors": errors, "count": len(results),
             "source": "World Bank Data API"}
 
 
-# ─── Source: FAOSTAT API v2 (JWT Cognito) ─────────────────────────────────────
-# URL: https://faostatservices.fao.org/api/v1/{lang}/data/{domain}?area=...&item=...&element=...&year=...
-# Token: variable d'env FAOSTAT_JWT (Cognito AccessToken, expire 60min)
-# Obtenir un token: https://www.fao.org/faostat/en/#developer-portal
+# ─── Source: FAOSTAT API v1 (publique, sans authentification) ──────────────────
+# URL: https://fenixservices.fao.org/faostat/api/v1/en/data/{domain}?area=...&item=...&element=...&year=...
+# API v1 est publique : https://www.fao.org/faostat/en/#data
 #
 # Codes FAO/M49 pour les pays ouest-africains (clé = ISO2):
 FAO_COUNTRY_CODES: dict[str, str] = {
@@ -278,17 +284,16 @@ FAO_COUNTRY_CODES: dict[str, str] = {
     "GM": "270", "GW": "624", "LR": "430", "SL": "694", "CM": "120", "GN": "324",
 }
 
-FAO_BASE = "https://faostatservices.fao.org/api/v1/en"
+FAO_BASE = "https://fenixservices.fao.org/faostat/api/v1"
 FAO_DOMAINS = {
     "QCL": "Cultures et élevage",
     "RFN": "Engrais",
-    "PP": "Prix producteur",
 }
 
 # Elements FAO pertinents pour nos catégories
-# 5510 = Production (Quantity)
-# 5412 = Rendement (Yield)
-# 5312 = Surface récoltée (Area harvested)
+# 5510 = Production (Quantity) — tonnes
+# 5412 = Rendement (Yield) — kg/ha
+# 5312 = Surface récoltée (Area harvested) — ha
 
 FAO_ELEMENTS = {
     "QCL": {
@@ -311,36 +316,27 @@ FAO_CROPS = {
 }
 
 
-def _get_fao_token() -> Optional[str]:
-    import os
-    return os.environ.get("FAOSTAT_JWT")
-
-
 async def fetch_fao_domain(
     domain: str, country_m49: str, items: list[str],
     elements: list[str], years: list[int],
 ) -> List[Dict]:
-    token = _get_fao_token()
-    if not token:
-        return []
-
+    """Récupère les données FAO via l'API v1 publique (sans authentification)."""
     results = []
     for item in items:
         for element in elements:
             for year in years:
-                url = f"{FAO_BASE}/data/{domain}"
-                params = {
+                url = f"{FAO_BASE}/en/data/{domain}"
+                params: dict[str, str] = {
                     "area": country_m49,
                     "item": item,
                     "element": element,
                     "year": str(year),
+                    "show_codes": "true",
+                    "show_unit": "true",
                 }
                 try:
                     async with httpx.AsyncClient(timeout=30.0) as client:
-                        r = await client.get(
-                            url, params=params,
-                            headers={"Authorization": f"Bearer {token}"},
-                        )
+                        r = await client.get(url, params=params)
                         if r.status_code != 200:
                             continue
                         data = r.json()
@@ -350,10 +346,13 @@ async def fetch_fao_domain(
                             if val is not None:
                                 results.append({
                                     "country_code": str(rec.get("Area Code", country_m49)),
+                                    "country_name": rec.get("Area", ""),
                                     "indicator_code": f"FAO_{domain}_{element}_{item}",
                                     "year": int(rec.get("Year Code", year)),
                                     "value": float(val),
                                     "unit": rec.get("Unit", ""),
+                                    "item_name": rec.get("Item", ""),
+                                    "element_name": rec.get("Element", ""),
                                 })
                 except Exception:
                     continue
@@ -361,11 +360,7 @@ async def fetch_fao_domain(
 
 
 async def fetch_faostat_indicators() -> Dict[str, Any]:
-    token = _get_fao_token()
-    if not token:
-        return {"results": [], "errors": ["FAOSTAT_JWT non configuré"],
-                "count": 0, "source": "FAOSTAT"}
-
+    """Récupère les indicateurs FAOSTAT via l'API v1 publique."""
     results = []
     errors = []
 
@@ -377,10 +372,11 @@ async def fetch_faostat_indicators() -> Dict[str, Any]:
                 continue
             items = list(FAO_CROPS.keys())
             elements = list(domain_els.keys())
-            years = [2020, 2021, 2022]
+            years = [2020, 2021, 2022, 2023]
             try:
                 data = await fetch_fao_domain(domain, m49, items, elements, years)
                 for d in data:
+                    d["country_code"] = country_iso2
                     d["country_name"] = country_name
                     d["source"] = f"FAOSTAT ({info})"
                 results.extend(data)

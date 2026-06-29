@@ -1,5 +1,6 @@
 """Alerts and Notifications API endpoints"""
 
+import uuid
 from typing import Optional
 from fastapi import APIRouter, Depends, HTTPException, Query, status
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -124,7 +125,6 @@ async def get_alert(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    import uuid
     try:
         uid = uuid.UUID(alert_id)
     except ValueError:
@@ -142,7 +142,6 @@ async def mark_alert_read(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    import uuid
     try:
         uid = uuid.UUID(alert_id)
     except ValueError:
@@ -164,7 +163,6 @@ async def acknowledge_alert(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    import uuid
     try:
         uid = uuid.UUID(alert_id)
     except ValueError:
@@ -174,7 +172,6 @@ async def acknowledge_alert(
     if not alert:
         raise HTTPException(status_code=404, detail="Alerte non trouvée")
     try:
-        alert.status = "acknowledged"
         if hasattr(alert, 'comment'):
             alert.comment = data.get("comment")
         await db.commit()
@@ -190,7 +187,6 @@ async def resolve_alert(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    import uuid
     try:
         uid = uuid.UUID(alert_id)
     except ValueError:
@@ -200,7 +196,6 @@ async def resolve_alert(
     if not alert:
         raise HTTPException(status_code=404, detail="Alerte non trouvée")
     try:
-        alert.status = "resolved"
         if hasattr(alert, 'resolution'):
             alert.resolution = data.get("resolution")
         await db.commit()

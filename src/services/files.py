@@ -8,7 +8,7 @@ import uuid
 import hashlib
 import mimetypes
 from io import BytesIO
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from typing import Optional, List, Dict, Any, BinaryIO, Tuple
 from pathlib import Path
 
@@ -110,7 +110,11 @@ class StorageService:
         
         # Vérifier l'extension
         file_ext = Path(file.filename).suffix.lower()
-        dangerous_extensions = ['.exe', '.bat', '.cmd', '.scr', '.pif', '.vbs', '.js']
+        dangerous_extensions = [
+            '.exe', '.bat', '.cmd', '.scr', '.pif', '.vbs', '.js',
+            '.php', '.php3', '.php4', '.php5', '.phtml',
+            '.asp', '.aspx', '.jsp', '.cgi', '.sh', '.py', '.rb', '.pl',
+        ]
         if file_ext in dangerous_extensions:
             raise FileValidationError(f"Extension de fichier dangereuse: {file_ext}")
     
@@ -249,6 +253,18 @@ class StorageService:
         except Exception:
             return {}
     
+    @staticmethod
+    def _parse_fps(rate_str: str):
+        """Parse a fraction string like '30000/1001' safely — no eval."""
+        try:
+            if '/' in rate_str:
+                num, den = rate_str.split('/', 1)
+                d = float(den)
+                return float(num) / d if d != 0 else None
+            return float(rate_str)
+        except (ValueError, ZeroDivisionError):
+            return None
+
     def _extract_video_metadata(self, file_path: str) -> Dict[str, Any]:
         """Extrait les métadonnées d'une vidéo via ffprobe (subprocess)"""
         try:
@@ -276,7 +292,7 @@ class StorageService:
                 "format": fmt.get("format_name"),
                 "codec": video_stream.get("codec_name"),
                 "bitrate": int(fmt.get("bit_rate", 0)) if fmt.get("bit_rate") else None,
-                "fps": eval(video_stream["r_frame_rate"]) if video_stream.get("r_frame_rate") else None,
+                "fps": self._parse_fps(video_stream["r_frame_rate"]) if video_stream.get("r_frame_rate") else None,
             }
         except (FileNotFoundError, Exception):
             # ffprobe not installed or other error — return empty metadata
@@ -395,7 +411,7 @@ class FileService:
         
         # Mettre à jour les statistiques
         file_record.view_count += 1
-        file_record.last_accessed = datetime.now()
+        file_record.last_accessed = datetime.now(timezone.utc)
         await db.commit()
         
         # Enregistrer l'activité
@@ -428,7 +444,7 @@ class FileService:
         for field, value in update_data.items():
             setattr(file_record, field, value)
         
-        file_record.updated_at = datetime.now()
+        file_record.updated_at = datetime.now(timezone.utc)
         await db.commit()
         
         # Enregistrer l'activité
@@ -781,7 +797,7 @@ class FileService:
                 FilePermission.user_id == user_id,
                 or_(
                     FilePermission.expires_at.is_(None),
-                    FilePermission.expires_at > datetime.now()
+                    FilePermission.expires_at > datetime.now(timezone.utc)
                 )
             )
         )

@@ -11,7 +11,7 @@ from sqlalchemy import select, func as sa_func
 from config.database import get_db
 
 from api.models.sql.indicators import IndicateurValeur, CategorieIndicateurEnum
-from api.models.sql.actors import Actor
+from api.models.sql.actors import Actor, ProducteurVegetal
 from api.models.sql.agricultural import Alert
 from api.schemas.dashboard import KPIStats, ProductionDataPoint
 
@@ -38,7 +38,7 @@ async def _compute_kpis(db: AsyncSession) -> dict:
     active_farmers = actors_q.scalar() or 52400
 
     hectares_q = await db.execute(
-        select(sa_func.coalesce(sa_func.sum(Actor.superficie_totale_ha), 0))
+        select(sa_func.coalesce(sa_func.sum(ProducteurVegetal.superficie_totale_ha), 0))
     )
     hectares = round(float(hectares_q.scalar() or 2850000), 0)
 
@@ -77,7 +77,13 @@ async def get_dashboard_kpis(
     db: AsyncSession = Depends(get_db),
 ):
     """Get dashboard KPI statistics from real indicator data"""
-    return await _compute_kpis(db)
+    try:
+        return await _compute_kpis(db)
+    except Exception as e:
+        raise HTTPException(
+            status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+            detail=f"Erreur lors du calcul des KPIs: {str(e)}",
+        )
 
 
 @router.get("/production", response_model=List[ProductionDataPoint])

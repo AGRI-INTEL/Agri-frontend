@@ -4,6 +4,7 @@ Email sending service - uses fastapi-mail (SMTP) or sendmail fallback
 
 import subprocess
 import os
+import logging
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from typing import List, Optional
@@ -12,6 +13,7 @@ from fastapi_mail import ConnectionConfig, FastMail, MessageSchema, MessageType
 from config.config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 # Configuration SMTP pour fastapi-mail
 mail_conf = ConnectionConfig(
@@ -41,15 +43,15 @@ async def _send_email_robust(email: List[str], subject: str, body: str):
                 subtype=MessageType.html
             )
             await fm.send_message(message)
-            print(f"✅ Email SMTP envoyé à {email}")
+            logger.info("Email SMTP envoyé à %s", email)
             return True
         except Exception as e:
-            print(f"⚠️ Erreur SMTP: {e}. Fallback vers sendmail...")
+            logger.warning("Erreur SMTP: %s. Fallback vers sendmail...", e)
 
     # 2. Fallback via sendmail (système)
     SENDMAIL_PATH = "/usr/sbin/sendmail"
     if not os.path.exists(SENDMAIL_PATH):
-        print(f"❌ Erreur: sendmail introuvable sur ce système.")
+        logger.error("sendmail introuvable sur ce système.")
         return False
 
     for recipient in email:
@@ -67,9 +69,9 @@ async def _send_email_robust(email: List[str], subject: str, body: str):
                 capture_output=True,
                 timeout=15
             )
-            print(f"✅ Email envoyé via sendmail à {recipient}")
+            logger.info("Email envoyé via sendmail à %s", recipient)
         except Exception as e:
-            print(f"❌ Erreur critique mail ({recipient}): {e}")
+            logger.error("Erreur critique mail (%s): %s", recipient, e)
             return False
     return True
 

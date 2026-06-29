@@ -4,6 +4,15 @@ Implémentation des formules métier pour les 4 sous-secteurs
 """
 
 import logging
+import warnings
+
+__all__ = ['CalculationService', 'AggregationService']
+
+warnings.warn(
+    "CalculationService uses sync Session. For async, use src/services/ instead.",
+    DeprecationWarning,
+    stacklevel=2
+)
 import statistics
 from datetime import date, datetime, timedelta
 from decimal import Decimal
@@ -522,7 +531,7 @@ class CalculationService:
             and_(
                 IndicateurValeur.actor_id == actor.id,
                 IndicateurValeur.date_debut <= periode,
-                IndicateurValeur.valeur_json.contains({context_key: None})
+                IndicateurValeur.valeur_json.has_key(context_key)
             )
         ).first()
         

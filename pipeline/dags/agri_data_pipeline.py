@@ -144,7 +144,7 @@ def extract_world_bank_data(**context):
 
     for code, name in WORLD_BANK_INDICATORS.items():
         try:
-            url = f"http://api.worldbank.org/v2/country/{country_iso_codes}/indicator/{code}"
+            url = f"https://api.worldbank.org/v2/country/{country_iso_codes}/indicator/{code}"
             params = {
                 'format': 'json', 'date': f'{current_year-10}:{current_year}', 'per_page': 1000
             }

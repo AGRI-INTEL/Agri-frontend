@@ -5,7 +5,7 @@ Application configuration using Pydantic Settings
 import os
 from functools import lru_cache
 from typing import List, Optional, Any, Dict
-from pydantic import Field, validator
+from pydantic import Field, field_validator
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -31,15 +31,16 @@ class Settings(BaseSettings):
     ENVIRONMENT: str = Field(default="development")
     DEBUG: bool = Field(default=True)
 
-    @validator("DEBUG", pre=True)
-    def validate_debug(cls, v: Any, values: Dict[str, Any]) -> bool:
+    @field_validator("DEBUG", mode="before")
+    @classmethod
+    def validate_debug(cls, v: Any) -> bool:
         if isinstance(v, str):
             return v.lower() in ("true", "1", "yes")
         return bool(v)
 
     # Database URLs
     DATABASE_URL: str = Field(
-        default="postgresql://postgres:CHANGE_ME@localhost:5432/agriintel360"
+        default="postgresql://postgres:CHANGE_ME@127.0.0.1:5432/agriintel360"
     )
     MONGODB_URL: str = Field(
         default="mongodb://admin:CHANGE_ME@localhost:27017/agriintel360"
@@ -64,11 +65,11 @@ class Settings(BaseSettings):
     BCRYPT_ROUNDS: int = 12
     ALLOWED_HOSTS: List[str] = ["localhost", "127.0.0.1"]
 
-    @validator("ALLOWED_HOSTS", pre=True)
+    @field_validator("ALLOWED_HOSTS", mode="before")
+    @classmethod
     def assemble_allowed_hosts(cls, v: Any) -> List[str]:
         if isinstance(v, str) and v.startswith("["):
             import json
-
             try:
                 return json.loads(v)
             except (json.JSONDecodeError, TypeError):
@@ -96,11 +97,11 @@ class Settings(BaseSettings):
         ]
     )
 
-    @validator("BACKEND_CORS_ORIGINS", pre=True)
+    @field_validator("BACKEND_CORS_ORIGINS", mode="before")
+    @classmethod
     def assemble_cors_origins(cls, v: Any) -> List[str]:
         if isinstance(v, str) and v.startswith("["):
             import json
-
             try:
                 return json.loads(v)
             except (json.JSONDecodeError, TypeError):

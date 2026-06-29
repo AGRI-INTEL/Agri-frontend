@@ -37,9 +37,14 @@ class UserUpdate(BaseModel):
     organization: Optional[str] = Field(None, max_length=255)
     country: Optional[str] = Field(None, max_length=100)
     bio: Optional[str] = Field(None, max_length=1000)
-    language: Optional[str] = Field(None, pattern=r"^(fr|en|pt)$")
+    language: Optional[str] = Field(None, max_length=10)
     timezone: Optional[str] = Field(None, max_length=50)
-    theme: Optional[str] = Field(None, pattern=r"^(light|dark)$")
+    theme: Optional[str] = Field(None, pattern=r"^(light|dark|system)$")
+    job_title: Optional[str] = Field(None, max_length=100)
+    department: Optional[str] = Field(None, max_length=100)
+    gender: Optional[str] = Field(None, max_length=30)
+
+    model_config = {"extra": "ignore"}
 
 
 class UserResponse(BaseModel):
@@ -64,6 +69,9 @@ class UserResponse(BaseModel):
     sector: Optional[str] = None
     profile_role: Optional[str] = None
     newsletter: bool = False
+    job_title: Optional[str] = None
+    department: Optional[str] = None
+    gender: Optional[str] = None
     created_at: datetime
     updated_at: datetime
     last_login: Optional[datetime] = None

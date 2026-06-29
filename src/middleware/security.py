@@ -88,10 +88,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         if request.scope.get("type") == "websocket":
             return await call_next(request)
 
-        client_ip = request.client.host
+        client_ip = request.client.host if request.client else "127.0.0.1"
 
         if (
-            request.url.path.startswith("/health")
+            request.url.path in {"/health", "/api/v1/health", "/"}
+            or request.url.path.startswith(("/health", "/api/v1/health"))
             or client_ip in {"127.0.0.1", "::1", "localhost"}
             or client_ip.startswith("10.")
             or client_ip.startswith("192.168.")
@@ -109,12 +110,6 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
 
         # Purge old timestamps
         self.clients[client_ip] = [t for t in self.clients[client_ip] if t > cutoff]
-
-        # Evict entry entirely when list is empty (saves memory)
-        if not self.clients[client_ip] and client_ip in self.clients:
-            # Keep it — we're about to add to it below; just skip the key to avoid
-            # re-checking the cap. This path only fires on first request after idle.
-            pass
 
         if len(self.clients[client_ip]) >= self.requests_per_minute:
             from starlette.responses import JSONResponse

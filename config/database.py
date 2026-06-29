@@ -34,9 +34,6 @@ async_session_maker = async_sessionmaker(
     engine, class_=AsyncSession, expire_on_commit=False
 )
 
-# Use the models' Base to ensure metadata includes all models
-Base = Base
-
 # MongoDB
 mongodb_client: AsyncIOMotorClient = None
 mongodb_db = None
@@ -83,6 +80,47 @@ async def _add_missing_columns() -> None:
     """
 
     def _sync_add_missing_columns(sync_conn) -> None:
+        def _resolve_default(column) -> str:
+            if column.server_default is not None and hasattr(column.server_default, "arg"):
+                arg = column.server_default.arg
+                if isinstance(arg, str):
+                    stripped = arg.strip()
+                    if stripped.startswith(":"):
+                        return ""
+                    if "(" in stripped or stripped.startswith("'"):
+                        return f" DEFAULT {stripped}"
+                    if stripped.upper() in ("TRUE", "FALSE"):
+                        return f" DEFAULT {stripped}"
+                    if stripped.lstrip("-").replace(".", "", 1).isdigit():
+                        return f" DEFAULT {stripped}"
+                    return f" DEFAULT '{stripped}'"
+                if hasattr(arg, "compile"):
+                    compiled = arg.compile(
+                        dialect=sync_conn.dialect,
+                        compile_kwargs={"literal_binds": True},
+                    )
+                    return f" DEFAULT {compiled}"
+                return f" DEFAULT {arg}"
+            if column.default is not None:
+                val = column.default.arg if hasattr(column.default, 'arg') else column.default
+                if val is None:
+                    return ""
+                if isinstance(val, bool):
+                    return f" DEFAULT {'TRUE' if val else 'FALSE'}"
+                if isinstance(val, int):
+                    return f" DEFAULT {val}"
+                if isinstance(val, str):
+                    return f" DEFAULT '{val}'"
+            if not column.nullable:
+                coltype = str(column.type).lower()
+                if "boolean" in coltype or "bool" in coltype:
+                    return " DEFAULT FALSE"
+                if "integer" in coltype or "int" in coltype or "numeric" in coltype or "float" in coltype or "double" in coltype:
+                    return " DEFAULT 0"
+                if "varchar" in coltype or "text" in coltype or "char" in coltype:
+                    return " DEFAULT ''"
+            return ""
+
         inspector = sa_inspect(sync_conn)
         for table_name, table in Base.metadata.tables.items():
             if not inspector.has_table(table_name):
@@ -93,37 +131,11 @@ async def _add_missing_columns() -> None:
                     continue
                 col_type = column.type.compile(dialect=sync_conn.dialect)
                 nullable = "NULL" if column.nullable else "NOT NULL"
-                server_default = ""
-                if column.server_default is not None and hasattr(
-                    column.server_default, "arg"
-                ):
-                    arg = column.server_default.arg
-                    if isinstance(arg, str):
-                        stripped = arg.strip()
-                        if stripped.startswith(":"):
-                            pass  # SQLAlchemy parameter marker, skip
-                        elif "(" in stripped or stripped.startswith("'"):
-                            # SQL function (e.g. now()) or already-quoted literal
-                            server_default = f" DEFAULT {stripped}"
-                        elif stripped.upper() in ("TRUE", "FALSE"):
-                            server_default = f" DEFAULT {stripped}"
-                        elif stripped.lstrip("-").replace(".", "", 1).isdigit():
-                            server_default = f" DEFAULT {stripped}"
-                        else:
-                            # Plain string value — must be SQL-quoted
-                            server_default = f" DEFAULT '{stripped}'"
-                    elif hasattr(arg, "compile"):
-                        compiled = arg.compile(
-                            dialect=sync_conn.dialect,
-                            compile_kwargs={"literal_binds": True},
-                        )
-                        server_default = f" DEFAULT {compiled}"
-                    else:
-                        server_default = f" DEFAULT {arg}"
+                default_clause = _resolve_default(column)
                 quoted_name = f'"{column.name}"'
                 stmt = (
                     f'ALTER TABLE "{table_name}" '
-                    f"ADD COLUMN IF NOT EXISTS {quoted_name} {col_type}{server_default} {nullable}"
+                    f"ADD COLUMN IF NOT EXISTS {quoted_name} {col_type}{default_clause} {nullable}"
                 )
                 logger.info(
                     "Schema sync: adding missing column %s.%s", table_name, column.name
@@ -163,11 +175,11 @@ async def _run_alembic_upgrade() -> None:
         try:
             await asyncio.wait_for(
                 loop.run_in_executor(None, command.upgrade, cfg, "head"),
-                timeout=10.0,
+                timeout=30.0,
             )
             logger.info("Alembic migrations applied successfully")
         except asyncio.TimeoutError:
-            logger.warning("Alembic upgrade timed out — skipping")
+            logger.warning("Alembic upgrade timed out (>30s) — skipping")
     except Exception as exc:  # pragma: no cover - defensive guard
         # Migrations are best-effort: the programmatic column check below will
         # cover the most common case (new columns on existing tables) so the
@@ -197,9 +209,7 @@ async def create_db_and_tables():
                 # Ignore duplicate enum type creation errors when the database
                 # already contains the type and the rest of the schema is present.
                 if "pg_type_typname_nsp_index" in str(ie.orig):
-                    print(
-                        "⚠️ SQLAlchemy enum type already exists; continuing database initialization."
-                    )
+                    logger.warning("SQLAlchemy enum type already exists; continuing database initialization.")
                 else:
                     raise
 
@@ -224,13 +234,11 @@ async def create_db_and_tables():
                 await mongodb_db.command("ping")
                 print("✅ MongoDB connected successfully")
             except Exception as mongo_exc:
-                print(f"⚠️ MongoDB initialization skipped or failed: {mongo_exc}")
+                print("⚠️ MongoDB initialization skipped or failed: %s", mongo_exc)
                 mongodb_client = None
                 mongodb_db = None
         else:
-            print(
-                "⚠️ MongoDB is disabled or no URL configured; skipping MongoDB initialization."
-            )
+            print("⚠️ MongoDB is disabled or no URL configured; skipping MongoDB initialization.")
 
         # Initialize Redis (non-fatal — app runs without Redis)
         if settings.REDIS_URL:
@@ -241,7 +249,7 @@ async def create_db_and_tables():
                 await redis_client.ping()
                 print("✅ Redis connected successfully")
             except Exception as redis_exc:
-                print(f"⚠️ Redis initialization skipped or failed: {redis_exc}")
+                print("⚠️ Redis initialization skipped or failed: %s", redis_exc)
                 redis_client = None
         else:
             print("⚠️ Redis URL not configured; continuing without Redis.")
@@ -259,17 +267,15 @@ async def create_db_and_tables():
                     print("❌ Elasticsearch connection failed")
                     es_client = None
             except Exception as es_exc:
-                print(f"⚠️ Elasticsearch initialization skipped or failed: {es_exc}")
+                print("⚠️ Elasticsearch initialization skipped or failed: %s", es_exc)
                 es_client = None
         else:
-            print(
-                "⚠️ Elasticsearch is disabled or no URL configured; skipping Elasticsearch initialization."
-            )
+            print("⚠️ Elasticsearch is disabled or no URL configured; skipping Elasticsearch initialization.")
 
         print("✅ All databases initialized successfully")
 
     except Exception as e:
-        print(f"⚠️ Database initialization error (non-fatal): {e}")
+        print("⚠️ Database initialization error (non-fatal): %s", e)
 
 
 async def close_db_connections():

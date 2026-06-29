@@ -8,7 +8,7 @@ from datetime import date
 from typing import Optional
 
 from sqlalchemy import (Boolean, Column, DateTime, Enum, Float, ForeignKey, Index, Integer,
-                       String, Table, UniqueConstraint)
+                       String, Text, Table, UniqueConstraint)
 from sqlalchemy.dialects.postgresql import JSONB, UUID
 from sqlalchemy.orm import relationship
 from sqlalchemy.sql import func
@@ -38,7 +38,7 @@ class StagingProduction(Base):
     value = Column(Float, nullable=False)
     unit = Column(Enum(UnitType), nullable=False)
     source = Column(String(100), nullable=True)
-    metadata_ = Column(JSONB, nullable=True)
+    raw_metadata = Column('metadata', JSONB, nullable=True)
     quality_score = Column(Float, default=1.0)
     is_validated = Column(Integer, default=0)  # 0: non validé, 1: validé, -1: rejeté
 
@@ -153,13 +153,15 @@ class Alert(Base):
     severity = Column(String, nullable=False)
     is_read = Column(Boolean, default=False, nullable=False)
     action_url = Column(String(500), nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=func.now())
-    
+    data_source = Column(JSONB, nullable=True)
+    expires_at = Column(DateTime(timezone=True), nullable=True)
+    is_active = Column(Boolean, default=True, nullable=False)
+
     user_id = Column(UUID(as_uuid=True), ForeignKey('users.id'), nullable=True)
     country_id = Column(Integer, ForeignKey('countries.id'), nullable=True)
     crop_id = Column(Integer, ForeignKey('crops.id'), nullable=True)
 
-    user = relationship("User")
+    user = relationship("User", back_populates="alerts")
 
     __table_args__ = (
         Index('ix_alert_user_id', 'user_id'),

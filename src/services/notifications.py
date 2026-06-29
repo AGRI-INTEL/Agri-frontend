@@ -176,7 +176,7 @@ class NotificationService:
             websocket_message = {
                 'type': 'alert',
                 'data': alert,
-                'timestamp': datetime.now().isoformat()
+                'timestamp': datetime.now(timezone.utc).isoformat()
             }
             
             await websocket_manager.send_personal_message(
@@ -220,7 +220,7 @@ class NotificationService:
                 "data": {
                     "alert_type": alert.get("type", ""),
                     "severity": alert.get("severity", "info"),
-                    "timestamp": datetime.now().isoformat(),
+                    "timestamp": datetime.now(timezone.utc).isoformat(),
                 },
             }
 
@@ -366,7 +366,6 @@ class AlertService:
         """Crée une nouvelle alerte"""
         
         try:
-            # Créer l'alerte en base
             async for db in get_db():
                 alert = Alert(
                     title=title,
@@ -376,8 +375,8 @@ class AlertService:
                     country_id=country_id,
                     crop_id=crop_id,
                     user_id=user_id,
-                    data_source=details or {},
-                    expires_at=expires_at or datetime.now(timezone.utc) + timedelta(hours=24)
+                    data_source=details or None,
+                    expires_at=expires_at,
                 )
                 
                 db.add(alert)
@@ -394,7 +393,7 @@ class AlertService:
                     'type': alert_type.value,
                     'severity': severity.value,
                     'details': details,
-                    'created_at': datetime.now(),
+                    'created_at': datetime.now(timezone.utc),
                     'expires_at': expires_at
                 }
                 
@@ -431,10 +430,6 @@ class AlertService:
     async def _get_users_for_alert(self, alert_data: Dict[str, Any]) -> List[User]:
         """Récupère les utilisateurs à notifier pour une alerte"""
         
-        # TODO: Implémenter la logique de ciblage des utilisateurs
-        # Basé sur les préférences, rôles, pays, cultures, etc.
-        
-        # Pour l'instant, retourne tous les utilisateurs actifs
         async for db in get_db():
             from sqlalchemy import select
             result = await db.execute(
@@ -444,17 +439,19 @@ class AlertService:
     
     async def _get_user_notification_channels(self, user: User) -> List[NotificationChannel]:
         """Récupère les canaux de notification préférés d'un utilisateur"""
-        
-        # TODO: Récupérer les préférences de l'utilisateur
-        # Pour l'instant, utilise les canaux par défaut
-        
         channels = [NotificationChannel.WEBSOCKET]
         
-        if user.email:
+        prefs = getattr(user, "notification_prefs", None) or {}
+        channel_prefs = prefs.get("channels", {})
+        
+        if channel_prefs.get("email", True) and user.email:
             channels.append(NotificationChannel.EMAIL)
         
-        if user.phone_number:
+        if channel_prefs.get("sms", False) and user.phone_number:
             channels.append(NotificationChannel.SMS)
+        
+        if channel_prefs.get("push", True) and getattr(user, "fcm_token", None):
+            channels.append(NotificationChannel.PUSH)
         
         return channels
     

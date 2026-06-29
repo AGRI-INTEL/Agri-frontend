@@ -23,7 +23,6 @@ from api.routers.actors import router as actors_router
 from api.routers.messaging import router as messaging_router
 from api.routers.indicators import router as indicators_router
 from api.routers.health import health_router
-from api.routers.websocket import websocket_router
 
 api_v1_router = APIRouter()
 

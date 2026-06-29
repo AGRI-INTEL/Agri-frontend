@@ -10,7 +10,7 @@ from sqlalchemy import (
     DateTime, ForeignKey, UniqueConstraint, Index,
     func,
 )
-from sqlalchemy.dialects.postgresql import UUID
+from sqlalchemy.dialects.postgresql import UUID, JSONB
 from sqlalchemy.orm import relationship
 
 from api.models.sql.base import Base
@@ -57,10 +57,14 @@ class PrivateMessage(Base):
     conversation_id = Column(UUID(as_uuid=True), ForeignKey('conversations.id', ondelete='CASCADE'), nullable=False)
     sender_id = Column(UUID(as_uuid=True), ForeignKey('users.id', ondelete='CASCADE'), nullable=False)
     content = Column(Text, nullable=True)
-    message_type = Column(String(20), default='text', nullable=False)
+    message_type = Column(String(30), default='text', nullable=False)
     is_edited = Column(Boolean, default=False, nullable=False)
     audio_url = Column(String(500), nullable=True)
     audio_duration = Column(Float, nullable=True)
+    file_url = Column(String(500), nullable=True)
+    file_name = Column(String(255), nullable=True)
+    file_type = Column(String(100), nullable=True)
+    poll_data = Column(JSONB, nullable=True)
     created_at = Column(DateTime(timezone=True), server_default=func.now(), nullable=False)
     updated_at = Column(DateTime(timezone=True), server_default=func.now(), onupdate=func.now(), nullable=False)
 

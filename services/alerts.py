@@ -4,9 +4,16 @@ Analyse automatique des seuils et envoi de notifications multi-canal
 """
 
 import asyncio
+import warnings
+
+warnings.warn(
+    "AlerteService uses sync Session — async migration needed",
+    DeprecationWarning,
+    stacklevel=2,
+)
 import json
 import logging
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone
 from decimal import Decimal
 from enum import Enum
 from typing import Dict, List, Optional, Union, Any
@@ -24,6 +31,11 @@ from api.models.sql.indicators import (
     CategorieIndicateurEnum
 )
 from api.models.sql.user import User
+try:
+    from api.models.sql.user import UserRole, Role
+except ImportError:
+    UserRole = None
+    Role = None
 from services.calculations import CalculationService
 
 logger = logging.getLogger(__name__)
@@ -414,7 +426,7 @@ class AlerteService:
             
             # Créer l'objet alerte
             alerte = AlerteModel(
-                id=f"{type_alerte.value}_{actor.id if actor else user_id}_{int(datetime.now().timestamp())}",
+                id=f"{type_alerte.value}_{actor.id if actor else user_id}_{int(datetime.now(timezone.utc).timestamp())}",
                 type_alerte=type_alerte,
                 severite=severite,
                 titre=titre,
@@ -425,8 +437,8 @@ class AlerteService:
                 region=actor.region if actor else None,
                 donnees_contexte=donnees_contexte or {},
                 actions_recommandees=actions_recommandees or [],
-                created_at=datetime.now(),
-                expires_at=datetime.now() + timedelta(days=7)  # Expire après 7 jours
+                created_at=datetime.now(timezone.utc),
+                expires_at=datetime.now(timezone.utc) + timedelta(days=7)  # Expire après 7 jours
             )
             
             # Sauvegarder en Redis
@@ -506,12 +518,14 @@ class AlerteService:
             # Notifier les administrateurs pour les alertes critiques
             if alerte.severite in [SeveriteAlerte.CRITIQUE, SeveriteAlerte.URGENCE]:
                 # Récupérer les admin/analysts de la région
-                admins = self.db.query(User).join(UserRole).join(Role).filter(
-                    and_(
-                        Role.name.in_(["admin", "analyst"]),
-                        UserRole.is_active == True
-                    )
-                ).all()
+                admins = []
+                if UserRole is not None and Role is not None:
+                    admins = self.db.query(User).join(UserRole).join(Role).filter(
+                        and_(
+                            Role.name.in_(["admin", "analyst"]),
+                            UserRole.is_active == True
+                        )
+                    ).all()
                 
                 for admin in admins:
                     users_to_notify.add(str(admin.id))
@@ -591,7 +605,7 @@ class AlerteService:
                 if alerte_data:
                     alerte = AlerteModel.parse_raw(alerte_data)
                     if (alerte.type_alerte == type_alerte and
-                        alerte.created_at > datetime.now() - timedelta(hours=24)):
+                        alerte.created_at > datetime.now(timezone.utc) - timedelta(hours=24)):
                         return True
             
             return False
@@ -625,14 +639,14 @@ class AlerteService:
     async def _obtenir_captures_historiques(self, actor: Actor, nb_mois: int) -> List[Decimal]:
         """Obtenir l'historique des captures pour un pêcheur"""
         try:
-            date_limite = datetime.now() - timedelta(days=30 * nb_mois)
-            
+            date_limite = datetime.now(timezone.utc) - timedelta(days=30 * nb_mois)
+
             captures = self.db.query(IndicateurValeur).filter(
                 and_(
                     IndicateurValeur.actor_id == actor.id,
                     IndicateurValeur.type_indicateur == TypeIndicateurEnum.CHIFFRE_AFFAIRES,
                     IndicateurValeur.created_at >= date_limite,
-                    IndicateurValeur.valeur_json.contains({"capture_kg_sortie": None})
+                    IndicateurValeur.valeur_json.has_key("capture_kg_sortie")
                 )
             ).all()
             
@@ -650,13 +664,13 @@ class AlerteService:
     async def _calculer_extraction_annuelle(self, actor: Actor) -> Optional[Decimal]:
         """Calculer l'extraction forestière annuelle"""
         try:
-            annee_courante = datetime.now().year
-            
+            annee_courante = datetime.now(timezone.utc).year
+
             extractions = self.db.query(IndicateurValeur).filter(
                 and_(
                     IndicateurValeur.actor_id == actor.id,
                     IndicateurValeur.annee == annee_courante,
-                    IndicateurValeur.valeur_json.contains({"quantite_recoltee_kg": None})
+                    IndicateurValeur.valeur_json.has_key("quantite_recoltee_kg")
                 )
             ).all()
             
@@ -698,9 +712,25 @@ class AlerteService:
     
     async def _envoyer_notifications(self, alerte: AlerteModel):
         """Envoyer les notifications selon les préférences utilisateur"""
-        # Implementation des notifications email, SMS, webhook
-        # À développer selon les besoins
-        pass
+        try:
+            from src.services.notifications import NotificationService, NotificationChannel
+            svc = NotificationService()
+            user_id = alerte.user_id or alerte.actor_id
+            if not user_id:
+                return
+            from sqlalchemy import select
+            from config.database import get_db
+            async for db in get_db():
+                result = await db.execute(select(User).where(User.id == user_id))
+                user = result.scalar_one_or_none()
+                if not user:
+                    return
+                channels = [NotificationChannel.WEBSOCKET]
+                if user.email:
+                    channels.append(NotificationChannel.EMAIL)
+                await svc.send_notification(user, alerte.dict(), channels)
+        except Exception as e:
+            logger.error(f"Erreur envoi notification: {e}")
     
     
     # ================================================

@@ -7,7 +7,6 @@ from fastapi import APIRouter, Depends, HTTPException, Query, UploadFile, File
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, or_, case
 from sqlalchemy.orm import joinedload
-import random
 from pydantic import BaseModel as PydanticModel
 from typing import Optional as Opt
 
@@ -150,7 +149,7 @@ def _format_actor(a: Actor, countries: dict[str, str]) -> dict:
             "species": species,
             "main_species": species[0]["species"] if species else None,
             "farming_type": ea.type_elevage or "extensif",
-            "mortality_rate": random.uniform(1.0, 5.0),
+            "mortality_rate": None,
             "vaccination_program": ea.acces_veterinaire or False,
             "has_milking_machine": False,
         }
@@ -163,7 +162,7 @@ def _format_actor(a: Actor, countries: dict[str, str]) -> dict:
             "motor_count": 1 if ph.possede_moteur else 0,
             "has_gps": False,
             "has_sonar": False,
-            "annual_catch_tonnes": random.randint(5, 100),
+            "annual_catch_tonnes": None,
             "main_species": ["Sardinelle", "Thon"],
             "sustainable_fishing": True,
             "closed_season_compliant": True,
@@ -181,7 +180,7 @@ def _format_actor(a: Actor, countries: dict[str, str]) -> dict:
             else 0,
             "tree_species": ef.produits_principaux or [],
             "main_products": ef.produits_principaux or [],
-            "annual_production_tonnes": random.randint(2, 50),
+            "annual_production_tonnes": None,
             "fsc_certified": ef.certifie_durable or False,
             "legal_origin_verified": True,
         }
@@ -192,6 +191,8 @@ def _format_actor(a: Actor, countries: dict[str, str]) -> dict:
         "id": str(a.id),
         "user_id": str(a.user_id) if a.user_id else None,
         "name": org or name,
+        "first_name": a.prenom or name,
+        "last_name": org or name,
         "slug": f"{a.prenom or ''}.{name}.{str(a.id)[:8]}" if name else str(a.id),
         "role": _enum_val(a.role).lower(),
         "sector": sector.lower(),
@@ -212,13 +213,13 @@ def _format_actor(a: Actor, countries: dict[str, str]) -> dict:
         "status": status,
         "is_active": a.is_active,
         "is_verified": a.is_verified,
-        "is_featured": a.is_verified and random.random() > 0.7,
+        "is_featured": a.is_verified,
         "is_premium": False,
         "languages": ["fr"],
-        "view_count": random.randint(50, 5000),
-        "contact_count": random.randint(5, 200),
-        "rating_average": round(random.uniform(3.0, 5.0), 1),
-        "rating_count": random.randint(1, 50),
+        "view_count": 0,
+        "contact_count": 0,
+        "rating_average": None,
+        "rating_count": 0,
         "vegetal_data": vegetal_data,
         "animal_data": animal_data,
         "halieutique_data": halieutique_data,
@@ -230,8 +231,51 @@ def _format_actor(a: Actor, countries: dict[str, str]) -> dict:
     }
 
 
+def _parse_sector_data(body: dict, sector: str) -> dict:
+    """Extract flat fields from frontend nested sector data format."""
+    data: dict = {}
+    sector_key_map = {
+        "vegetal": "vegetal_data",
+        "animal": "animal_data",
+        "halieutique": "halieutique_data",
+        "forestier": "forestier_data",
+    }
+    key = sector_key_map.get(sector)
+    if not key:
+        return data
+
+    sd = body.get(key, {}) or {}
+    if sector == "vegetal":
+        data["superficie_totale_ha"] = sd.get("total_area_ha")
+        data["cultures_principales"] = sd.get("main_crops", [])
+        data["acces_irrigation"] = sd.get("irrigation_access", False)
+        data["nombre_parcelles"] = sd.get("plots_count", 1)
+        data["possede_tracteur"] = sd.get("has_tractor", False)
+    elif sector == "animal":
+        data["nombre_bovins"] = sd.get("bovins_count", 0)
+        data["nombre_ovins"] = sd.get("ovins_count", 0)
+        data["nombre_caprins"] = sd.get("caprins_count", 0)
+        data["nombre_volailles"] = sd.get("volailles_count", 0)
+        data["nombre_porcins"] = sd.get("porcins_count", 0)
+        data["type_elevage"] = sd.get("breeding_type")
+        data["acces_veterinaire"] = sd.get("veterinary_access", False)
+    elif sector == "halieutique":
+        data["nombre_pirogues"] = sd.get("pirogues_count", 0)
+        data["possede_moteur"] = sd.get("motor", False)
+        data["type_peche"] = sd.get("fishing_type")
+        data["zone_peche_principale"] = sd.get("main_fishing_zone")
+    elif sector == "forestier":
+        data["type_exploitation"] = sd.get("exploitation_type")
+        data["produits_principaux"] = sd.get("main_products", [])
+        data["superficie_concession_ha"] = sd.get("concession_area_ha")
+        data["certifie_durable"] = sd.get("sustainable_certified", False)
+    return data
+
+
 class ActorCreateBody(PydanticModel):
-    name: str
+    name: str = ""
+    first_name: Opt[str] = None
+    last_name: Opt[str] = None
     role: str = "producteur_individuel"
     sector: str = "vegetal"
     country: str = "Sénégal"
@@ -239,36 +283,19 @@ class ActorCreateBody(PydanticModel):
     city: Opt[str] = None
     email: Opt[str] = None
     phone: Opt[str] = None
+    is_active: bool = True
     latitude: Opt[float] = None
     longitude: Opt[float] = None
-    # vegetal
-    superficie_totale_ha: Opt[float] = None
-    cultures_principales: Opt[Lst[str]] = None
-    acces_irrigation: Opt[bool] = False
-    nombre_parcelles: Opt[int] = 1
-    possede_tracteur: Opt[bool] = False
-    # animal
-    nombre_bovins: Opt[int] = 0
-    nombre_ovins: Opt[int] = 0
-    nombre_caprins: Opt[int] = 0
-    nombre_volailles: Opt[int] = 0
-    nombre_porcins: Opt[int] = 0
-    type_elevage: Opt[str] = None
-    acces_veterinaire: Opt[bool] = False
-    # halieutique
-    nombre_pirogues: Opt[int] = 0
-    possede_moteur: Opt[bool] = False
-    type_peche: Opt[str] = None
-    zone_peche_principale: Opt[str] = None
-    # forestier
-    type_exploitation: Opt[str] = None
-    produits_principaux: Opt[Lst[str]] = None
-    superficie_concession_ha: Opt[float] = None
-    certifie_durable: Opt[bool] = False
+    vegetal_data: Opt[dict] = None
+    animal_data: Opt[dict] = None
+    halieutique_data: Opt[dict] = None
+    forestier_data: Opt[dict] = None
 
 
 class ActorUpdateBody(PydanticModel):
     name: Opt[str] = None
+    first_name: Opt[str] = None
+    last_name: Opt[str] = None
     role: Opt[str] = None
     region: Opt[str] = None
     city: Opt[str] = None
@@ -277,26 +304,52 @@ class ActorUpdateBody(PydanticModel):
     is_active: Opt[bool] = None
     latitude: Opt[float] = None
     longitude: Opt[float] = None
-    superficie_totale_ha: Opt[float] = None
-    cultures_principales: Opt[Lst[str]] = None
-    acces_irrigation: Opt[bool] = None
-    nombre_parcelles: Opt[int] = None
-    possede_tracteur: Opt[bool] = None
-    nombre_bovins: Opt[int] = None
-    nombre_ovins: Opt[int] = None
-    nombre_caprins: Opt[int] = None
-    nombre_volailles: Opt[int] = None
-    nombre_porcins: Opt[int] = None
-    type_elevage: Opt[str] = None
-    acces_veterinaire: Opt[bool] = None
-    nombre_pirogues: Opt[int] = None
-    possede_moteur: Opt[bool] = None
-    type_peche: Opt[str] = None
-    zone_peche_principale: Opt[str] = None
-    type_exploitation: Opt[str] = None
-    produits_principaux: Opt[Lst[str]] = None
-    superficie_concession_ha: Opt[float] = None
-    certifie_durable: Opt[bool] = None
+    vegetal_data: Opt[dict] = None
+    animal_data: Opt[dict] = None
+    halieutique_data: Opt[dict] = None
+    forestier_data: Opt[dict] = None
+
+
+@router.get("/geojson")
+async def actors_geojson(
+    sector: Opt[str] = Query(None),
+    db: AsyncSession = Depends(get_db),
+):
+    q = select(Actor).where(
+        Actor.latitude != None,
+        Actor.longitude != None,
+        Actor.is_active == True,
+    )
+    if sector:
+        try:
+            ss = SousSecteursEnum(sector.lower())
+            q = q.where(Actor.sous_secteur == ss)
+        except ValueError:
+            pass
+
+    result = await db.execute(q)
+    actors = result.scalars().all()
+
+    features = []
+    for a in actors:
+        features.append({
+            "type": "Feature",
+            "geometry": {
+                "type": "Point",
+                "coordinates": [float(a.longitude), float(a.latitude)],
+            },
+            "properties": {
+                "id": str(a.id),
+                "name": a.nom or "",
+                "sector": _enum_val(a.sous_secteur),
+                "role": _enum_val(a.role),
+                "city": a.commune or "",
+                "region": a.region or "",
+                "country": a.pays or "",
+            },
+        })
+
+    return {"type": "FeatureCollection", "features": features}
 
 
 @router.get("/overview")
@@ -327,7 +380,6 @@ async def actors_overview(
         "verified": "#3B82F6",
     }
 
-    # By sector
     sector_rows = await db.execute(
         select(Actor.sous_secteur, func.count(Actor.id).label("cnt"))
         .group_by(Actor.sous_secteur)
@@ -342,7 +394,6 @@ async def actors_overview(
         for s, c in sector_rows
     ]
 
-    # By role (top 10)
     role_rows = await db.execute(
         select(Actor.role, func.count(Actor.id).label("cnt"))
         .group_by(Actor.role)
@@ -351,7 +402,6 @@ async def actors_overview(
     )
     by_role = [{"role": _enum_val(r).lower(), "count": c} for r, c in role_rows]
 
-    # By country
     country_rows = await db.execute(
         select(Actor.pays, func.count(Actor.id).label("cnt"))
         .group_by(Actor.pays)
@@ -359,7 +409,6 @@ async def actors_overview(
     )
     by_country = [{"country": p, "count": c} for p, c in country_rows]
 
-    # By status (inferred from is_active / is_verified)
     status_rows = await db.execute(
         select(
             case(
@@ -434,7 +483,6 @@ async def list_actors(
         except ValueError:
             pass
     if country and country != "all":
-        # country param could be code or name
         name = COUNTRY_CODE_TO_NAME.get(country.upper(), country)
         query = query.where(Actor.pays == name)
     if status and status != "all":
@@ -509,16 +557,16 @@ async def get_actor_activity(
     db: AsyncSession = Depends(get_db),
 ):
     activities = [
-        {"type": "profile_view", "count": random.randint(10, 500)},
-        {"type": "contact_click", "count": random.randint(1, 50)},
-        {"type": "review_posted", "count": random.randint(0, 20)},
+        {"type": "profile_view", "count": 0},
+        {"type": "contact_click", "count": 0},
+        {"type": "review_posted", "count": 0},
     ]
     return {
         "actor_id": actor_id,
         "activities": activities,
-        "total_views": random.randint(100, 10000),
-        "total_contacts": random.randint(5, 500),
-        "trend": random.choice(["up", "down", "stable"]),
+        "total_views": 0,
+        "total_contacts": 0,
+        "trend": "stable",
     }
 
 
@@ -538,8 +586,13 @@ async def create_actor(
     except ValueError:
         sector_enum = SousSecteursEnum.VEGETAL
 
+    effective_name = body.name or f"{body.first_name or ''} {body.last_name or ''}".strip()
+    if not effective_name:
+        effective_name = "Acteur sans nom"
+
     actor = Actor(
-        nom=body.name,
+        nom=effective_name,
+        prenom=body.first_name,
         sous_secteur=sector_enum,
         role=role_enum,
         pays=body.country,
@@ -549,63 +602,57 @@ async def create_actor(
         telephone=body.phone,
         latitude=body.latitude,
         longitude=body.longitude,
-        is_active=True,
+        is_active=body.is_active,
         is_verified=False,
     )
     db.add(actor)
     await db.flush()
 
+    sd = _parse_sector_data(body.model_dump(), body.sector)
+
     if sector_enum == SousSecteursEnum.VEGETAL:
         pv = ProducteurVegetal(
             id=actor.id,
-            superficie_totale_ha=body.superficie_totale_ha,
-            cultures_principales=body.cultures_principales or [],
-            acces_irrigation=body.acces_irrigation or False,
-            nombre_parcelles=body.nombre_parcelles or 1,
-            possede_tracteur=body.possede_tracteur or False,
+            superficie_totale_ha=sd.get("superficie_totale_ha"),
+            cultures_principales=sd.get("cultures_principales", []),
+            acces_irrigation=sd.get("acces_irrigation", False),
+            nombre_parcelles=sd.get("nombre_parcelles", 1),
+            possede_tracteur=sd.get("possede_tracteur", False),
         )
         db.add(pv)
     elif sector_enum == SousSecteursEnum.ANIMAL:
         ea = EleveurAnimal(
             id=actor.id,
-            nombre_bovins=body.nombre_bovins or 0,
-            nombre_ovins=body.nombre_ovins or 0,
-            nombre_caprins=body.nombre_caprins or 0,
-            nombre_volailles=body.nombre_volailles or 0,
-            nombre_porcins=body.nombre_porcins or 0,
-            type_elevage=body.type_elevage,
-            acces_veterinaire=body.acces_veterinaire or False,
+            nombre_bovins=sd.get("nombre_bovins", 0),
+            nombre_ovins=sd.get("nombre_ovins", 0),
+            nombre_caprins=sd.get("nombre_caprins", 0),
+            nombre_volailles=sd.get("nombre_volailles", 0),
+            nombre_porcins=sd.get("nombre_porcins", 0),
+            type_elevage=sd.get("type_elevage"),
+            acces_veterinaire=sd.get("acces_veterinaire", False),
         )
         db.add(ea)
     elif sector_enum == SousSecteursEnum.HALIEUTIQUE:
         ph = PecheurHalieutique(
             id=actor.id,
-            nombre_pirogues=body.nombre_pirogues or 0,
-            possede_moteur=body.possede_moteur or False,
-            type_peche=body.type_peche,
-            zone_peche_principale=body.zone_peche_principale,
+            nombre_pirogues=sd.get("nombre_pirogues", 0),
+            possede_moteur=sd.get("possede_moteur", False),
+            type_peche=sd.get("type_peche"),
+            zone_peche_principale=sd.get("zone_peche_principale"),
         )
         db.add(ph)
     elif sector_enum == SousSecteursEnum.FORESTIER:
         ef = ExploitantForestier(
             id=actor.id,
-            type_exploitation=body.type_exploitation,
-            produits_principaux=body.produits_principaux or [],
-            superficie_concession_ha=body.superficie_concession_ha,
-            certifie_durable=body.certifie_durable or False,
+            type_exploitation=sd.get("type_exploitation"),
+            produits_principaux=sd.get("produits_principaux", []),
+            superficie_concession_ha=sd.get("superficie_concession_ha"),
+            certifie_durable=sd.get("certifie_durable", False),
         )
         db.add(ef)
 
     await db.commit()
     await db.refresh(actor)
-    await db.execute(
-        select(Actor).options(
-            joinedload(Actor.producteur_vegetal_profile),
-            joinedload(Actor.eleveur_animal_profile),
-            joinedload(Actor.pecheur_halieutique_profile),
-            joinedload(Actor.exploitant_forestier_profile),
-        ).where(Actor.id == actor.id)
-    )
     result = await db.execute(
         select(Actor).options(
             joinedload(Actor.producteur_vegetal_profile),
@@ -645,6 +692,7 @@ async def update_actor(
         raise HTTPException(status_code=404, detail="Acteur non trouvé")
 
     if body.name is not None: actor.nom = body.name
+    if body.first_name is not None: actor.prenom = body.first_name
     if body.role is not None:
         try: actor.role = ActorRoleEnum(body.role.lower())
         except ValueError: pass
@@ -656,34 +704,37 @@ async def update_actor(
     if body.latitude is not None: actor.latitude = body.latitude
     if body.longitude is not None: actor.longitude = body.longitude
 
+    sector_str = _enum_val(actor.sous_secteur)
+    sd = _parse_sector_data(body.model_dump(exclude_none=True), sector_str) if body.model_dump(exclude_none=True) else {}
+
     if actor.sous_secteur == SousSecteursEnum.VEGETAL and actor.producteur_vegetal_profile:
         pv = actor.producteur_vegetal_profile
-        if body.superficie_totale_ha is not None: pv.superficie_totale_ha = body.superficie_totale_ha
-        if body.cultures_principales is not None: pv.cultures_principales = body.cultures_principales
-        if body.acces_irrigation is not None: pv.acces_irrigation = body.acces_irrigation
-        if body.nombre_parcelles is not None: pv.nombre_parcelles = body.nombre_parcelles
-        if body.possede_tracteur is not None: pv.possede_tracteur = body.possede_tracteur
+        if "superficie_totale_ha" in sd and sd["superficie_totale_ha"] is not None: pv.superficie_totale_ha = sd["superficie_totale_ha"]
+        if "cultures_principales" in sd and sd["cultures_principales"] is not None: pv.cultures_principales = sd["cultures_principales"]
+        if "acces_irrigation" in sd and sd["acces_irrigation"] is not None: pv.acces_irrigation = sd["acces_irrigation"]
+        if "nombre_parcelles" in sd and sd["nombre_parcelles"] is not None: pv.nombre_parcelles = sd["nombre_parcelles"]
+        if "possede_tracteur" in sd and sd["possede_tracteur"] is not None: pv.possede_tracteur = sd["possede_tracteur"]
     elif actor.sous_secteur == SousSecteursEnum.ANIMAL and actor.eleveur_animal_profile:
         ea = actor.eleveur_animal_profile
-        if body.nombre_bovins is not None: ea.nombre_bovins = body.nombre_bovins
-        if body.nombre_ovins is not None: ea.nombre_ovins = body.nombre_ovins
-        if body.nombre_caprins is not None: ea.nombre_caprins = body.nombre_caprins
-        if body.nombre_volailles is not None: ea.nombre_volailles = body.nombre_volailles
-        if body.nombre_porcins is not None: ea.nombre_porcins = body.nombre_porcins
-        if body.type_elevage is not None: ea.type_elevage = body.type_elevage
-        if body.acces_veterinaire is not None: ea.acces_veterinaire = body.acces_veterinaire
+        if "nombre_bovins" in sd: ea.nombre_bovins = sd["nombre_bovins"]
+        if "nombre_ovins" in sd: ea.nombre_ovins = sd["nombre_ovins"]
+        if "nombre_caprins" in sd: ea.nombre_caprins = sd["nombre_caprins"]
+        if "nombre_volailles" in sd: ea.nombre_volailles = sd["nombre_volailles"]
+        if "nombre_porcins" in sd: ea.nombre_porcins = sd["nombre_porcins"]
+        if "type_elevage" in sd: ea.type_elevage = sd["type_elevage"]
+        if "acces_veterinaire" in sd: ea.acces_veterinaire = sd["acces_veterinaire"]
     elif actor.sous_secteur == SousSecteursEnum.HALIEUTIQUE and actor.pecheur_halieutique_profile:
         ph = actor.pecheur_halieutique_profile
-        if body.nombre_pirogues is not None: ph.nombre_pirogues = body.nombre_pirogues
-        if body.possede_moteur is not None: ph.possede_moteur = body.possede_moteur
-        if body.type_peche is not None: ph.type_peche = body.type_peche
-        if body.zone_peche_principale is not None: ph.zone_peche_principale = body.zone_peche_principale
+        if "nombre_pirogues" in sd: ph.nombre_pirogues = sd["nombre_pirogues"]
+        if "possede_moteur" in sd: ph.possede_moteur = sd["possede_moteur"]
+        if "type_peche" in sd: ph.type_peche = sd["type_peche"]
+        if "zone_peche_principale" in sd: ph.zone_peche_principale = sd["zone_peche_principale"]
     elif actor.sous_secteur == SousSecteursEnum.FORESTIER and actor.exploitant_forestier_profile:
         ef = actor.exploitant_forestier_profile
-        if body.type_exploitation is not None: ef.type_exploitation = body.type_exploitation
-        if body.produits_principaux is not None: ef.produits_principaux = body.produits_principaux
-        if body.superficie_concession_ha is not None: ef.superficie_concession_ha = body.superficie_concession_ha
-        if body.certifie_durable is not None: ef.certifie_durable = body.certifie_durable
+        if "type_exploitation" in sd: ef.type_exploitation = sd["type_exploitation"]
+        if "produits_principaux" in sd: ef.produits_principaux = sd["produits_principaux"]
+        if "superficie_concession_ha" in sd: ef.superficie_concession_ha = sd["superficie_concession_ha"]
+        if "certifie_durable" in sd: ef.certifie_durable = sd["certifie_durable"]
 
     await db.commit()
     result2 = await db.execute(

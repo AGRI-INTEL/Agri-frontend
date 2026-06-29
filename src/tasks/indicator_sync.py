@@ -38,10 +38,17 @@ async def sync_external_indicators_periodically():
                     await db.commit()
                 except Exception:
                     await db.rollback()
+        except asyncio.CancelledError:
+            logger.info("Periodic sync task cancelled — stopping")
+            break
         except Exception as e:
             logger.error(f"Periodic sync failed: {e}")
 
-        await asyncio.sleep(SYNC_INTERVAL_HOURS * 3600)
+        try:
+            await asyncio.sleep(SYNC_INTERVAL_HOURS * 3600)
+        except asyncio.CancelledError:
+            logger.info("Periodic sync task cancelled during sleep — stopping")
+            break
 
 
 async def start_background_tasks(app):

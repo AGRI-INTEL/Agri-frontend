@@ -2,12 +2,12 @@
 Authentication API endpoints
 """
 
+import asyncio
 import hashlib
 import secrets
 import base64
 import json
 import os
-import shutil
 from datetime import timedelta, datetime, timezone
 from urllib.parse import quote_plus as url_encode
 
@@ -24,6 +24,7 @@ from config.database import get_db
 from src.services.auth import AuthService, get_current_user, get_current_active_user
 from src.services.email import send_verification_email, send_password_reset_email
 from src.services.session import session_service
+from src.services.redis import mark_totp_code_used
 from api.schemas.auth import (
     UserCreate, UserLogin, UserLoginResponse, UserResponse, UserUpdate,
     Token, PasswordReset, PasswordResetConfirm, PasswordChange,
@@ -36,6 +37,11 @@ from api.models.sql.api_keys import ApiKey
 settings = get_settings()
 router = APIRouter()
 bearer_scheme = HTTPBearer()
+
+
+def _write_file(path: str, contents: bytes) -> None:
+    with open(path, "wb") as f:
+        f.write(contents)
 
 
 def serialize_user(user: User) -> UserResponse:
@@ -218,7 +224,7 @@ async def change_password(
     if not AuthService.verify_password(password_data.current_password, current_user.hashed_password):
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail="Current password is incorrect")
     current_user.hashed_password = AuthService.hash_password(password_data.new_password)
-    current_user.password_changed_at = func.now()
+    current_user.password_changed_at = datetime.now(timezone.utc)
     await db.commit()
     return {"message": "Password changed successfully"}
 
@@ -312,15 +318,18 @@ async def check_username_availability(username_data: dict, db: AsyncSession = De
 
 @router.post("/avatar", response_model=UserResponse)
 async def upload_avatar(
-    file: UploadFile = File(...),
+    avatar: UploadFile = File(...),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     os.makedirs(os.path.join(settings.UPLOAD_DIR, "avatars"), exist_ok=True)
-    file_path = os.path.join(settings.UPLOAD_DIR, "avatars", f"{current_user.id}_{file.filename}")
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    current_user.avatar_url = f"/static/avatars/{current_user.id}_{file.filename}"
+    ext = os.path.splitext(avatar.filename or "")[1] or ".jpg"
+    safe_name = f"{current_user.id}{ext}"
+    file_path = os.path.join(settings.UPLOAD_DIR, "avatars", safe_name)
+    contents = await avatar.read()
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, lambda: _write_file(file_path, contents))
+    current_user.avatar_url = f"/static/avatars/{safe_name}"
     await db.commit()
     await db.refresh(current_user)
     return serialize_user(current_user)
@@ -328,15 +337,18 @@ async def upload_avatar(
 
 @router.post("/cover", response_model=UserResponse)
 async def upload_cover(
-    file: UploadFile = File(...),
+    cover: UploadFile = File(...),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
     os.makedirs(os.path.join(settings.UPLOAD_DIR, "covers"), exist_ok=True)
-    file_path = os.path.join(settings.UPLOAD_DIR, "covers", f"{current_user.id}_{file.filename}")
-    with open(file_path, "wb") as buffer:
-        shutil.copyfileobj(file.file, buffer)
-    current_user.cover_url = f"/static/covers/{current_user.id}_{file.filename}"
+    ext = os.path.splitext(cover.filename or "")[1] or ".jpg"
+    safe_name = f"{current_user.id}{ext}"
+    file_path = os.path.join(settings.UPLOAD_DIR, "covers", safe_name)
+    contents = await cover.read()
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, lambda: _write_file(file_path, contents))
+    current_user.cover_url = f"/static/covers/{safe_name}"
     await db.commit()
     await db.refresh(current_user)
     return serialize_user(current_user)
@@ -344,22 +356,51 @@ async def upload_cover(
 
 # ── Preferences ───────────────────────────────────────────────────────────────
 
-@router.get("/preferences", response_model=UserPreferences)
+@router.get("/preferences")
 async def get_user_preferences(current_user: User = Depends(get_current_active_user)):
-    return UserPreferences(language=current_user.language, timezone=current_user.timezone, theme=current_user.theme)
+    prefs = current_user.notification_prefs or {}
+    return {
+        "language": current_user.language,
+        "timezone": current_user.timezone,
+        "theme": current_user.theme,
+        "notifications": prefs.get("notifications", {}),
+        "privacy": prefs.get("privacy", {}),
+    }
 
 
-@router.put("/preferences", response_model=UserPreferences)
+@router.put("/preferences")
 async def update_user_preferences(
-    preferences: UserPreferences,
+    preferences: dict,
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    current_user.language = preferences.language
-    current_user.timezone = preferences.timezone
-    current_user.theme = preferences.theme
+    import copy
+    from sqlalchemy.orm.attributes import flag_modified
+
+    if "language" in preferences:
+        current_user.language = preferences["language"]
+    if "timezone" in preferences:
+        current_user.timezone = preferences["timezone"]
+    if "theme" in preferences:
+        current_user.theme = preferences["theme"]
+
+    if "notifications" in preferences or "privacy" in preferences:
+        prefs = copy.deepcopy(current_user.notification_prefs or {})
+        if "notifications" in preferences:
+            prefs["notifications"] = preferences["notifications"]
+        if "privacy" in preferences:
+            prefs["privacy"] = preferences["privacy"]
+        current_user.notification_prefs = prefs
+        flag_modified(current_user, "notification_prefs")
+
     await db.commit()
-    return preferences
+    return {
+        "language": current_user.language,
+        "timezone": current_user.timezone,
+        "theme": current_user.theme,
+        "notifications": (current_user.notification_prefs or {}).get("notifications", {}),
+        "privacy": (current_user.notification_prefs or {}).get("privacy", {}),
+    }
 
 
 # ── Account deletion ──────────────────────────────────────────────────────────
@@ -382,6 +423,7 @@ async def delete_account(
 
 @router.post("/2fa/enable", response_model=TwoFactorSetup)
 async def enable_2fa(
+    data: dict = {},
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
@@ -425,6 +467,11 @@ async def verify_2fa(
             raise HTTPException(status_code=400, detail="Code TOTP invalide")
         backup_codes.remove(body.code.upper())
         current_user.totp_backup_codes = backup_codes
+    else:
+        # Prevent replay: reject codes already used within the validity window
+        first_use = await mark_totp_code_used(str(current_user.id), body.code, ttl_seconds=90)
+        if not first_use:
+            raise HTTPException(status_code=400, detail="Code TOTP déjà utilisé")
 
     current_user.totp_enabled = True
     await db.commit()
@@ -435,11 +482,15 @@ async def verify_2fa(
     }
 
 
-@router.delete("/2fa/disable")
+@router.post("/2fa/disable")
 async def disable_2fa(
+    data: dict = {},
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
+    password = data.get("password", "")
+    if password and not AuthService.verify_password(password, current_user.hashed_password):
+        raise HTTPException(status_code=400, detail="Mot de passe incorrect")
     current_user.totp_secret = None
     current_user.totp_enabled = False
     current_user.totp_backup_codes = None
@@ -452,6 +503,7 @@ async def get_2fa_status(current_user: User = Depends(get_current_active_user)):
     backup_count = len(current_user.totp_backup_codes or []) if current_user.totp_enabled else 0
     return {
         "enabled": current_user.totp_enabled,
+        "method": "app" if current_user.totp_enabled else None,
         "backup_codes_remaining": backup_count,
     }
 

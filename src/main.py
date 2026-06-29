@@ -9,11 +9,13 @@ os.environ.setdefault('OPENBLAS_NUM_THREADS', '1')
 os.environ.setdefault('OMP_NUM_THREADS', '1')
 
 import asyncio
+import logging
 import uvicorn
 from contextlib import asynccontextmanager
-from typing import Dict, Any
 
-from fastapi import FastAPI, HTTPException, Request, Depends
+logger = logging.getLogger(__name__)
+
+from fastapi import FastAPI, Request, Depends, status
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
@@ -37,49 +39,81 @@ async def lifespan(app: FastAPI):
     setup_logging()
     try:
         from config.database import create_db_and_tables
-        await asyncio.wait_for(create_db_and_tables(), timeout=15.0)
+        await asyncio.wait_for(create_db_and_tables(), timeout=60.0)
     except asyncio.TimeoutError:
-        print("⚠️  Database initialization timed out — continuing without DB init")
+        logger.warning("Database initialization timed out (>60s) — continuing without DB init")
     except Exception as e:
-        print(f"⚠️  Database initialization warning (non-fatal): {e}")
+        logger.warning("Database initialization warning (non-fatal): %s", e)
 
     # Start background tasks
     try:
         from src.tasks.indicator_sync import start_background_tasks
         await asyncio.wait_for(start_background_tasks(app), timeout=5.0)
     except asyncio.TimeoutError:
-        print("⚠️  Background task start timed out — continuing")
+        logger.warning("Background task start timed out — continuing")
     except Exception as e:
-        import traceback
-        print(f"⚠️  Background task start warning: {e}")
-        traceback.print_exc()
+        logger.warning("Background task start warning: %s", e, exc_info=True)
 
-    print("✅ Lifespan yield — server is ready")
+    logger.info("Lifespan yield — server is ready")
     yield
 
-    print("⏹️  Lifespan shutdown started")
+    logger.info("Lifespan shutdown started")
     try:
         from src.tasks.indicator_sync import stop_background_tasks
         await stop_background_tasks(app)
     except Exception as e:
-        print(f"⚠️  Background task stop warning: {e}")
+        logger.warning("Background task stop warning: %s", e)
 
     try:
         from config.database import close_db_connections
         await close_db_connections()
     except Exception as e:
-        print(f"⚠️  Database shutdown warning: {e}")
+        logger.warning("Database shutdown warning: %s", e)
 
 
+_is_prod = settings.ENVIRONMENT == "production"
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="Plateforme Intelligente de Décision Agricole pour l'Afrique",
     version=settings.VERSION,
-    openapi_url=f"{settings.API_V1_STR}/openapi.json",
-    docs_url=f"{settings.API_V1_STR}/docs",
-    redoc_url=f"{settings.API_V1_STR}/redoc",
+    openapi_url=None if _is_prod else f"{settings.API_V1_STR}/openapi.json",
+    docs_url=None if _is_prod else f"{settings.API_V1_STR}/docs",
+    redoc_url=None if _is_prod else f"{settings.API_V1_STR}/redoc",
     lifespan=lifespan,
 )
+
+
+@app.exception_handler(Exception)
+async def global_exception_handler(request: Request, exc: Exception):
+    """Catch-all exception handler that returns JSON for API routes."""
+    logger.error("Unhandled exception on %s %s: %s", request.method, request.url.path, exc, exc_info=True)
+    return JSONResponse(
+        status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
+        content={
+            "name": "InternalError",
+            "message": "An unexpected error occurred",
+            "status": 500,
+            "detail": str(exc) if settings.DEBUG else None,
+        },
+    )
+
+
+@app.exception_handler(status.HTTP_404_NOT_FOUND)
+async def not_found_handler(request: Request, exc):
+    """Return JSON for 404 on API routes, pass through for others."""
+    if request.url.path.startswith("/api/"):
+        return JSONResponse(
+            status_code=status.HTTP_404_NOT_FOUND,
+            content={
+                "name": "NotFound",
+                "message": f"Route {request.method} {request.url.path} not found",
+                "status": 404,
+            },
+        )
+    return JSONResponse(
+        status_code=status.HTTP_404_NOT_FOUND,
+        content={"detail": "Not Found"},
+    )
 
 # Prevent Varnish CDN from caching API responses
 @app.middleware("http")
@@ -92,7 +126,14 @@ async def no_cache_api_responses(request: Request, call_next):
     return response
 
 
-# CORS — single middleware, no duplicate
+# Middleware registration — add_middleware prepends to the stack, so last-added = outermost.
+# Desired request-processing order (outer → inner):
+#   TrustedHost → CORS → Logging → RateLimit → SecurityHeaders → Session
+# Therefore add in reverse order:
+app.add_middleware(SessionMiddleware, secret_key=settings.JWT_SECRET_KEY)
+app.add_middleware(SecurityHeadersMiddleware)
+app.add_middleware(RateLimitMiddleware, requests_per_minute=settings.RATE_LIMIT_PER_MINUTE)
+app.add_middleware(LoggingMiddleware)
 app.add_middleware(
     CORSMiddleware,
     allow_origins=settings.BACKEND_CORS_ORIGINS,
@@ -108,12 +149,6 @@ app.add_middleware(
     expose_headers=["X-RateLimit-Limit", "X-RateLimit-Remaining", "X-RateLimit-Reset"],
     max_age=3600,
 )
-
-app.add_middleware(SecurityHeadersMiddleware)
-app.add_middleware(SessionMiddleware, secret_key=settings.JWT_SECRET_KEY)
-app.add_middleware(RateLimitMiddleware)
-app.add_middleware(LoggingMiddleware)
-
 if settings.ENVIRONMENT == "production":
     app.add_middleware(TrustedHostMiddleware, allowed_hosts=settings.ALLOWED_HOSTS)
 

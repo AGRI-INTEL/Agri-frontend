@@ -1,3 +1,8 @@
+"""
+DEPRECATED / LEGACY — This module is no longer wired in src/main.py.
+Active middleware is at src/middleware/security.py.
+This file is kept for reference only.
+"""
 from typing import Callable
 
 from fastapi import FastAPI, Request, Response

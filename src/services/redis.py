@@ -51,3 +51,17 @@ async def is_token_blacklisted(token: str) -> bool:
     except Exception as e:
         logger.warning("Redis is_blacklisted failed: %s", e)
         return False
+
+
+async def mark_totp_code_used(user_id: str, code: str, ttl_seconds: int = 90) -> bool:
+    """Store a TOTP code as used. Returns True if the code is new (not yet used)."""
+    try:
+        pool = await get_redis()
+        if pool is None:
+            return True  # No Redis — allow code (degraded mode)
+        key = f"totp_used:{user_id}:{code}"
+        result = await pool.set(key, 1, ex=ttl_seconds, nx=True)
+        return result is not None  # True = newly set (first use), None = already existed
+    except Exception as e:
+        logger.warning("Redis mark_totp_code_used failed: %s", e)
+        return True  # Allow code on Redis failure

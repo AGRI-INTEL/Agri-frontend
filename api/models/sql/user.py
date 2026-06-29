@@ -34,7 +34,7 @@ class User(Base):
     hashed_password = Column(String(255), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     is_verified = Column(Boolean, default=False, nullable=False)
-    role = Column(Enum(UserRole), default=UserRole.USER, nullable=False)
+    role = Column(Enum(UserRole, native_enum=False), default=UserRole.USER, nullable=False)
     
     # Profile information
     phone_number = Column(String(50), nullable=True)
@@ -47,6 +47,9 @@ class User(Base):
     sector = Column(String(50), nullable=True)
     profile_role = Column(String(50), nullable=True)
     newsletter = Column(Boolean, server_default="false", default=False, nullable=False)
+    job_title = Column(String(100), nullable=True)
+    department = Column(String(100), nullable=True)
+    gender = Column(String(30), nullable=True)
     
     # Preferences
     language = Column(String(10), default="fr", nullable=False)
@@ -68,6 +71,11 @@ class User(Base):
     totp_enabled = Column(Boolean, server_default="false", default=False, nullable=False)
     totp_backup_codes = Column(JSONB, nullable=True)
     
+    # Notifications
+    alerts = relationship("Alert", back_populates="user")
+    fcm_token = Column(String(500), nullable=True)
+    notification_prefs = Column(JSONB, nullable=True)
+
     # Relations pour les communautés et fichiers
     created_groups = relationship("Group", back_populates="creator")
     groups = relationship("Group", secondary="group_members", back_populates="members")

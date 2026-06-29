@@ -624,7 +624,8 @@ async def create_indicator(
         created_by=current_user.id,
     )
     db.add(record)
-    await db.flush()
+    await db.commit()
+    await db.refresh(record)
 
     return {
         "id": str(record.id),
@@ -653,7 +654,7 @@ async def delete_indicator(
         raise HTTPException(status_code=404, detail="Indicateur non trouvé")
 
     await db.delete(record)
-    await db.flush()
+    await db.commit()
 
     return {"message": "Indicateur supprimé avec succès", "id": id}
 
@@ -696,7 +697,7 @@ async def batch_update_indicators(
                 updated.append(str(record.id))
         except (ValueError, KeyError):
             continue
-    await db.flush()
+    await db.commit()
     return {"message": f"{len(updated)} indicateurs mis à jour", "updated": updated}
 
 
