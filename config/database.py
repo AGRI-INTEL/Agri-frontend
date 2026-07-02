@@ -175,11 +175,11 @@ async def _run_alembic_upgrade() -> None:
         try:
             await asyncio.wait_for(
                 loop.run_in_executor(None, command.upgrade, cfg, "head"),
-                timeout=30.0,
+                timeout=120.0,
             )
             logger.info("Alembic migrations applied successfully")
         except asyncio.TimeoutError:
-            logger.warning("Alembic upgrade timed out (>30s) — skipping")
+            logger.warning("Alembic upgrade timed out (>120s) — skipping")
     except Exception as exc:  # pragma: no cover - defensive guard
         # Migrations are best-effort: the programmatic column check below will
         # cover the most common case (new columns on existing tables) so the

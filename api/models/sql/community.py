@@ -88,6 +88,8 @@ class Group(Base):
     requires_approval = Column(Boolean, default=False, nullable=False)
     max_members = Column(Integer, default=1000, nullable=True)
 
+    settings = Column(JSONB, nullable=True)
+
     avatar_url = Column(String(500), nullable=True)
     banner_url = Column(String(500), nullable=True)
     rules = Column(Text, nullable=True)

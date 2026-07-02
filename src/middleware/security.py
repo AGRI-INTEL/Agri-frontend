@@ -2,12 +2,58 @@
 Security middleware for FastAPI
 """
 
+import os
 import time
+import secrets
 from typing import Callable
 from fastapi import Request, Response
 from starlette.middleware.base import BaseHTTPMiddleware
 
 _MAX_TRACKED_IPS = 50_000
+
+SENSITIVE_PATHS = {"/auth/login", "/auth/register", "/auth/forgot-password"}
+
+
+class CSRFMiddleware(BaseHTTPMiddleware):
+    """Double-submit cookie CSRF protection for state-changing requests."""
+
+    def __init__(self, app, secret_key: str = None):
+        super().__init__(app)
+        self.secret_key = secret_key or os.urandom(32).hex()
+
+    async def dispatch(self, request: Request, call_next: Callable) -> Response:
+        if request.method in {"GET", "HEAD", "OPTIONS", "TRACE"}:
+            response = await call_next(request)
+            if not request.cookies.get("csrf_token"):
+                token = secrets.token_hex(32)
+                response.set_cookie(
+                    key="csrf_token",
+                    value=token,
+                    httponly=True,
+                    samesite="lax",
+                    secure=True,
+                    max_age=86400,
+                )
+            return response
+
+        csrf_cookie = request.cookies.get("csrf_token")
+        csrf_header = request.headers.get("X-CSRF-Token") or request.headers.get("X-Requested-With")
+
+        if not csrf_cookie:
+            from starlette.responses import JSONResponse
+            return JSONResponse(
+                {"detail": "CSRF token cookie missing. Refresh the page."},
+                status_code=403,
+            )
+
+        if csrf_header and csrf_header == csrf_cookie:
+            return await call_next(request)
+
+        from starlette.responses import JSONResponse
+        return JSONResponse(
+            {"detail": "CSRF token validation failed."},
+            status_code=403,
+        )
 
 
 class SecurityHeadersMiddleware(BaseHTTPMiddleware):
@@ -25,12 +71,27 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
         if is_docs:
             csp = (
                 "default-src 'self'; "
-                "script-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net; "
-                "img-src 'self' data: https://fastapi.tiangolo.com; "
-                "font-src 'self' https://fonts.gstatic.com; "
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://cdn.jsdelivr.net https://fonts.googleapis.com; "
+                "img-src 'self' data: https://fastapi.tiangolo.com https://cdn.jsdelivr.net https://cdn.redoc.ly; "
+                "font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com; "
+                "connect-src 'self' https://cdn.jsdelivr.net; "
+                "worker-src 'self' blob:; "
                 "object-src 'none'"
             )
+            security_headers = {
+                "Content-Security-Policy": csp,
+                "X-Frame-Options": "SAMEORIGIN",
+                "X-XSS-Protection": "1; mode=block",
+                "Referrer-Policy": "strict-origin-when-cross-origin",
+                "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+                "Permissions-Policy": (
+                    "geolocation=(), microphone=(), camera=(), "
+                    "payment=(), usb=(), magnetometer=(), gyroscope=(), "
+                    "accelerometer=(), ambient-light-sensor=(), autoplay=()"
+                ),
+                "Server": "AgriIntel360",
+            }
         else:
             csp = (
                 "default-src 'self'; "
@@ -42,21 +103,20 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "object-src 'none'; "
                 "frame-ancestors 'none'"
             )
-
-        security_headers = {
-            "Content-Security-Policy": csp,
-            "X-Frame-Options": "SAMEORIGIN",
-            "X-Content-Type-Options": "nosniff",
-            "X-XSS-Protection": "1; mode=block",
-            "Referrer-Policy": "strict-origin-when-cross-origin",
-            "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
-            "Permissions-Policy": (
-                "geolocation=(), microphone=(), camera=(), "
-                "payment=(), usb=(), magnetometer=(), gyroscope=(), "
-                "accelerometer=(), ambient-light-sensor=(), autoplay=()"
-            ),
-            "Server": "AgriIntel360",
-        }
+            security_headers = {
+                "Content-Security-Policy": csp,
+                "X-Frame-Options": "SAMEORIGIN",
+                "X-Content-Type-Options": "nosniff",
+                "X-XSS-Protection": "1; mode=block",
+                "Referrer-Policy": "strict-origin-when-cross-origin",
+                "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
+                "Permissions-Policy": (
+                    "geolocation=(), microphone=(), camera=(), "
+                    "payment=(), usb=(), magnetometer=(), gyroscope=(), "
+                    "accelerometer=(), ambient-light-sensor=(), autoplay=()"
+                ),
+                "Server": "AgriIntel360",
+            }
 
         for header, value in security_headers.items():
             response.headers[header] = value
@@ -68,13 +128,23 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
 
 
 class RateLimitMiddleware(BaseHTTPMiddleware):
-    """In-process rate limiting — bounded memory, LRU eviction."""
+    """In-process rate limiting — bounded memory, LRU eviction.
+    Differentiated limits per endpoint type.
+    """
+
+    SENSITIVE_LIMIT = 10
+    DEFAULT_LIMIT = 300
 
     def __init__(self, app, requests_per_minute: int = 300):
         super().__init__(app)
         self.requests_per_minute = requests_per_minute
-        # {ip: [timestamp, ...]} — evicted when list empties or cap reached
         self.clients: dict[str, list] = {}
+
+    def _get_limit_for_path(self, path: str) -> int:
+        for sensitive in SENSITIVE_PATHS:
+            if path.startswith(sensitive):
+                return self.SENSITIVE_LIMIT
+        return self.requests_per_minute
 
     def _evict_one_idle(self, current_time: float) -> None:
         """Remove the IP whose last request is oldest."""
@@ -108,10 +178,11 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
                 self._evict_one_idle(current_time)
             self.clients[client_ip] = []
 
-        # Purge old timestamps
         self.clients[client_ip] = [t for t in self.clients[client_ip] if t > cutoff]
 
-        if len(self.clients[client_ip]) >= self.requests_per_minute:
+        path_limit = self._get_limit_for_path(request.url.path)
+
+        if len(self.clients[client_ip]) >= path_limit:
             from starlette.responses import JSONResponse
             return JSONResponse(
                 {"detail": "Too many requests. Please try again later."},
@@ -129,8 +200,9 @@ class RateLimitMiddleware(BaseHTTPMiddleware):
         # but guard for future changes) — skip. The cleanup runs on next request.
 
         response = await call_next(request)
-        remaining = max(0, self.requests_per_minute - len(self.clients.get(client_ip, [])))
-        response.headers["X-RateLimit-Limit"] = str(self.requests_per_minute)
+        path_limit = self._get_limit_for_path(request.url.path)
+        remaining = max(0, path_limit - len(self.clients.get(client_ip, [])))
+        response.headers["X-RateLimit-Limit"] = str(path_limit)
         response.headers["X-RateLimit-Remaining"] = str(remaining)
         response.headers["X-RateLimit-Reset"] = str(int(current_time + 60))
         return response

@@ -42,6 +42,19 @@ class GroupUpdate(BaseModel):
     rules: Optional[str] = None
     tags: Optional[List[str]] = None
     location: Optional[str] = None
+    settings: Optional[Dict[str, Any]] = None
+
+
+class GroupSettingsUpdate(BaseModel):
+    """Mise à jour des paramètres avancés du groupe"""
+    messaging_blocked: Optional[bool] = None
+    members_can_post: Optional[bool] = None
+    members_can_comment: Optional[bool] = None
+    members_can_invite: Optional[bool] = None
+    members_can_upload: Optional[bool] = None
+    hidden_members: Optional[bool] = None
+    is_archived: Optional[bool] = None
+    mute_notifications: Optional[bool] = None
 
 
 class GroupMemberInfo(BaseModel):
@@ -66,6 +79,7 @@ class GroupResponse(GroupBase):
     created_by: UUID
     is_member: bool = False
     user_role: Optional[str] = None
+    settings: Optional[Dict[str, Any]] = None
     
     model_config = ConfigDict(from_attributes=True)
 

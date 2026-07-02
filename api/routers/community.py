@@ -15,6 +15,7 @@ from api.schemas.community import (
     GroupResponse,
     GroupCreate,
     GroupUpdate,
+    GroupSettingsUpdate,
     GroupDetailResponse,
     GroupListResponse,
     GroupMemberInfo,
@@ -313,6 +314,113 @@ async def update_member_role(
     return await community_service.update_member_role(
         group_id, user_id, new_role, str(current_user.id), db
     )
+
+
+# ── Paramètres avancés du groupe ──────────────────────────────────────────────
+
+@router.put("/groups/{group_id}/settings", response_model=GroupResponse)
+async def update_group_settings(
+    group_id: str,
+    settings: GroupSettingsUpdate,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Mettre à jour les paramètres avancés du groupe (messagerie, permissions, etc.)"""
+    return await community_service.update_group_settings(
+        group_id, settings.model_dump(exclude_none=True), str(current_user.id), db
+    )
+
+
+@router.post("/groups/{group_id}/toggle-messaging")
+async def toggle_messaging(
+    group_id: str,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Activer/désactiver la messagerie du groupe"""
+    return await community_service.toggle_messaging(group_id, str(current_user.id), db)
+
+
+@router.post("/groups/{group_id}/archive")
+async def archive_group(
+    group_id: str,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Archiver ou désarchiver le groupe"""
+    return await community_service.archive_group(group_id, str(current_user.id), db)
+
+
+@router.post("/groups/{group_id}/transfer-ownership")
+async def transfer_ownership(
+    group_id: str,
+    data: dict,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Transférer la propriété du groupe à un autre membre"""
+    new_owner_id = data.get("user_id", "")
+    if not new_owner_id:
+        raise HTTPException(status_code=400, detail="ID du nouveau propriétaire requis")
+    return await community_service.transfer_ownership(
+        group_id, new_owner_id, str(current_user.id), db
+    )
+
+
+# ── Demandes d'adhésion ──────────────────────────────────────────────────────
+
+@router.get("/groups/{group_id}/join-requests")
+async def get_join_requests(
+    group_id: str,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Liste des demandes d'adhésion en attente"""
+    return await community_service.get_join_requests(group_id, str(current_user.id), db)
+
+
+@router.post("/groups/{group_id}/join-requests/{request_id}/approve")
+async def approve_join_request(
+    group_id: str,
+    request_id: str,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Approuver une demande d'adhésion"""
+    return await community_service.approve_join_request(request_id, str(current_user.id), db)
+
+
+@router.post("/groups/{group_id}/join-requests/{request_id}/reject")
+async def reject_join_request(
+    group_id: str,
+    request_id: str,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Rejeter une demande d'adhésion"""
+    return await community_service.reject_join_request(request_id, str(current_user.id), db)
+
+
+# ── Épingler / Verrouiller ──────────────────────────────────────────────────
+
+@router.post("/posts/{post_id}/pin")
+async def pin_post(
+    post_id: str,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Épingler ou dépingler une publication"""
+    return await community_service.pin_post(post_id, str(current_user.id), db)
+
+
+@router.post("/posts/{post_id}/lock")
+async def lock_post(
+    post_id: str,
+    current_user: User = Depends(get_current_verified_user),
+    db: AsyncSession = Depends(get_db),
+):
+    """Verrouiller ou déverrouiller une publication"""
+    return await community_service.lock_post(post_id, str(current_user.id), db)
 
 
 # ── Publications ───────────────────────────────────────────────────────────────

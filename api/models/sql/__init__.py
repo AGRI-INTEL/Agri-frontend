@@ -30,5 +30,7 @@ from api.models.sql.indicators import (
     IndicateurForestier, DefinitionIndicateur, SeuilIndicateur, VueIndicateursAgregees
 )
 
+from api.models.sql.price_alert import PriceAlert, PriceAlertCondition
+
 # Extend the User model with additional relationships and RBAC methods
 extend_user_model()

@@ -2,6 +2,7 @@
 Dashboard API endpoints — données réelles depuis les indicateurs
 """
 
+import json
 from collections import defaultdict
 from typing import List, Optional, Any, Dict
 from datetime import datetime, timedelta, timezone
@@ -9,6 +10,7 @@ from fastapi import APIRouter, Depends, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func as sa_func
 from config.database import get_db
+from src.services.redis import get_redis
 
 from api.models.sql.indicators import IndicateurValeur, CategorieIndicateurEnum
 from api.models.sql.actors import Actor, ProducteurVegetal
@@ -18,29 +20,82 @@ from api.schemas.dashboard import KPIStats, ProductionDataPoint
 
 router = APIRouter()
 
+CACHE_TTL = 300  # 5 minutes
+
+
+async def _get_cached(cache_key: str):
+    try:
+        r = await get_redis()
+        if r is not None:
+            val = await r.get(cache_key)
+            if val is not None:
+                return json.loads(val)
+    except Exception:
+        pass
+    return None
+
+
+async def _set_cached(cache_key: str, data, ttl: int = CACHE_TTL):
+    try:
+        r = await get_redis()
+        if r is not None:
+            await r.setex(cache_key, ttl, json.dumps(data, default=str))
+    except Exception:
+        pass
+
+
+async def _invalidate_cache(pattern: str):
+    """Invalidate all cache keys matching a pattern (e.g. 'dashboard:*')."""
+    try:
+        r = await get_redis()
+        if r is not None:
+            cursor = 0
+            while True:
+                cursor, keys = await r.scan(cursor=cursor, match=pattern, count=50)
+                if keys:
+                    await r.delete(*keys)
+                if cursor == 0:
+                    break
+    except Exception:
+        pass
+
 
 async def _compute_kpis(db: AsyncSession) -> dict:
     """Compute dashboard KPIs from real indicator data (shared helper)."""
+    has_real_data = False
+
     total_val = await db.execute(
         select(sa_func.coalesce(sa_func.sum(IndicateurValeur.valeur_numerique), 0))
     )
-    total_production = round(float(total_val.scalar() or 1250000), 0)
+    raw_total = total_val.scalar() or 0
+    total_production = round(float(raw_total), 0)
+    if raw_total:
+        has_real_data = True
 
     countries_q = await db.execute(
         select(sa_func.count(sa_func.distinct(Actor.pays)))
         .where(Actor.pays != None, Actor.pays != "")
     )
-    countries_monitored = countries_q.scalar() or 15
+    countries_raw = countries_q.scalar() or 0
+    countries_monitored = countries_raw
+    if countries_raw:
+        has_real_data = True
 
     actors_q = await db.execute(
         select(sa_func.count(Actor.id)).where(Actor.is_active == True)
     )
-    active_farmers = actors_q.scalar() or 52400
+    actors_raw = actors_q.scalar() or 0
+    active_farmers = actors_raw
+    if actors_raw:
+        has_real_data = True
 
     hectares_q = await db.execute(
         select(sa_func.coalesce(sa_func.sum(ProducteurVegetal.superficie_totale_ha), 0))
     )
-    hectares = round(float(hectares_q.scalar() or 2850000), 0)
+    hectares_raw = hectares_q.scalar() or 0
+    hectares = round(float(hectares_raw), 0)
+    if hectares_raw:
+        has_real_data = True
 
     alerts_7d_q = await db.execute(
         select(sa_func.count(Alert.id)).where(
@@ -60,7 +115,9 @@ async def _compute_kpis(db: AsyncSession) -> dict:
         .limit(100)
     )
     price_vals = [float(r[0]) for r in price_rows.all() if r[0] is not None]
-    price_index = round(sum(price_vals) / len(price_vals), 2) if price_vals else 125.5
+    price_index = round(sum(price_vals) / len(price_vals), 2) if price_vals else 0.0
+    if price_vals:
+        has_real_data = True
 
     return dict(
         total_production=int(total_production),
@@ -69,6 +126,7 @@ async def _compute_kpis(db: AsyncSession) -> dict:
         countries_monitored=countries_monitored,
         active_farmers=active_farmers,
         hectares=int(hectares),
+        is_estimated=not has_real_data,
     )
 
 
@@ -76,9 +134,16 @@ async def _compute_kpis(db: AsyncSession) -> dict:
 async def get_dashboard_kpis(
     db: AsyncSession = Depends(get_db),
 ):
-    """Get dashboard KPI statistics from real indicator data"""
+    """Get dashboard KPI statistics from real indicator data (cached 5 min)"""
+    cache_key = "dashboard:kpis"
+    cached = await _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
     try:
-        return await _compute_kpis(db)
+        result = await _compute_kpis(db)
+        await _set_cached(cache_key, result)
+        return result
     except Exception as e:
         raise HTTPException(
             status_code=status.HTTP_500_INTERNAL_SERVER_ERROR,
@@ -161,7 +226,12 @@ async def get_production_summary(
 async def get_dashboard_overview(
     db: AsyncSession = Depends(get_db),
 ):
-    """Get dashboard overview data from real indicators"""
+    """Get dashboard overview data from real indicators (cached 5 min)"""
+    cache_key = "dashboard:overview"
+    cached = await _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
     kpis = await _compute_kpis(db)
 
     alerts_q = await db.execute(
@@ -191,21 +261,40 @@ async def get_dashboard_overview(
         avg_val = float(r[1]) if r[1] else 0
         top_crops.append({"name": name, "production": round(avg_val, 2), "change": 0.0})
 
-    return {
+    from api.models.sql.agricultural import StagingWeather
+    weather_summary = None
+    try:
+        wq = await db.execute(
+            select(StagingWeather).order_by(StagingWeather.date.desc()).limit(1)
+        )
+        wr = wq.scalar_one_or_none()
+        if wr:
+            weather_summary = {
+                "average_temperature": wr.temperature,
+                "rainfall_mm": wr.precipitation,
+                "drought_risk": "unknown",
+                "city": wr.city,
+                "country": wr.country,
+            }
+    except Exception:
+        pass
+
+    result = {
         "kpis": {
             "total_production": kpis["total_production"],
             "price_index": kpis["price_index"],
             "weather_alerts": kpis["weather_alerts"],
             "countries_monitored": kpis["countries_monitored"],
+            "active_farmers": kpis.get("active_farmers"),
+            "hectares": kpis.get("hectares"),
+            "is_estimated": kpis.get("is_estimated", True),
         },
         "recent_alerts": recent_alerts,
         "top_crops": top_crops[:6],
-        "weather_summary": {
-            "average_temperature": 28.5,
-            "rainfall_mm": 45.2,
-            "drought_risk": "medium",
-        },
+        "weather_summary": weather_summary,
     }
+    await _set_cached("dashboard:overview", result)
+    return result
 
 
 @router.get("/charts/production")
@@ -324,22 +413,14 @@ async def get_production_map_data(
         result = await db.execute(q)
         rows = result.all()
         if rows:
+            from api.models.sql.agricultural import Country
+            country_rows = await db.execute(
+                select(Country.name, Country.latitude, Country.longitude)
+                .where(Country.latitude != None, Country.longitude != None)
+            )
             coordinates = {
-                "Nigeria": [8.6753, 9.0820],
-                "Ghana": [-1.0232, 7.9465],
-                "Côte d'Ivoire": [-5.5471, 7.5399],
-                "Sénégal": [-14.4524, 14.4974],
-                "Mali": [-1.5558, 17.5707],
-                "Burkina Faso": [-1.5616, 12.2383],
-                "Bénin": [2.3158, 9.3077],
-                "Togo": [0.8248, 8.6195],
-                "Niger": [8.0817, 17.6078],
-                "Guinée": [-9.6966, 9.9456],
-                "Gambie": [-15.3109, 13.4432],
-                "Guinée-Bissau": [-15.1804, 11.8037],
-                "Liberia": [-9.4295, 6.4281],
-                "Sierra Leone": [-11.7799, 8.4606],
-                "Cameroun": [12.3547, 7.3697],
+                r.name: [r.longitude, r.latitude]
+                for r in country_rows.all()
             }
             features = []
             for r in rows:
@@ -407,7 +488,54 @@ async def export_to_excel(data):
 
 
 async def export_to_pdf(data):
-    raise NotImplementedError("PDF export is not yet implemented.")
+    df = pd.DataFrame(data)
+    html = f"""<!DOCTYPE html>
+<html>
+<head><meta charset="utf-8"><style>
+    body {{ font-family: 'DejaVu Sans', sans-serif; font-size: 12px; }}
+    h1 {{ color: #2563eb; font-size: 20px; margin-bottom: 16px; }}
+    table {{ width: 100%; border-collapse: collapse; }}
+    th {{ background: #2563eb; color: white; padding: 8px 12px; text-align: left; }}
+    td {{ padding: 6px 12px; border-bottom: 1px solid #e5e7eb; }}
+    tr:nth-child(even) {{ background: #f9fafb; }}
+    .footer {{ margin-top: 24px; font-size: 10px; color: #6b7280; text-align: center; }}
+</style></head>
+<body>
+<h1>AgriIntel360 — Export des données</h1>
+<p>Généré le {datetime.now(timezone.utc).strftime('%d/%m/%Y à %H:%M UTC')}</p>
+{table_html}
+<div class="footer">Document généré par AgriIntel360 — Plateforme Intelligente de Décision Agricole</div>
+</body></html>"""
+
+    if data:
+        df_html = df.to_html(classes="data-table", index=False, border=0)
+        table_html = df_html.replace('\n', '')
+        html = html.replace('{table_html}', table_html)
+    else:
+        html = html.replace('{table_html}', '<p>Aucune donnée disponible.</p>')
+
+    try:
+        from weasyprint import HTML as WeasyprintHTML
+        pdf_bytes = WeasyprintHTML(string=html).write_pdf()
+        return io.BytesIO(pdf_bytes)
+    except ImportError:
+        try:
+            from fpdf import FPDF
+            pdf = FPDF()
+            pdf.add_page()
+            pdf.add_font("DejaVu", "", "/usr/share/fonts/truetype/dejavu/DejaVuSans.ttf", uni=True)
+            pdf.set_font("DejaVu", "", 16)
+            pdf.cell(200, 10, "AgriIntel360 - Export", ln=True, align="C")
+            pdf.set_font("DejaVu", "", 10)
+            for _, row in df.head(50).iterrows():
+                text = " | ".join(str(v)[:60] for v in row)
+                pdf.cell(200, 8, text, ln=True)
+            return io.BytesIO(pdf.output(dest="S").encode("latin-1"))
+        except ImportError:
+            raise RuntimeError(
+                "PDF export requires weasyprint or fpdf. "
+                "Install with: pip install weasyprint"
+            )
 
 
 EXPORT_FORMATS = {

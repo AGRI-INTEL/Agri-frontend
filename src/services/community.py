@@ -28,6 +28,17 @@ from api.schemas.community import (
 class CommunityService:
     """Service principal de gestion des communautés"""
 
+    DEFAULT_SETTINGS = {
+        "messaging_blocked": False,
+        "members_can_post": True,
+        "members_can_comment": True,
+        "members_can_invite": True,
+        "members_can_upload": True,
+        "hidden_members": False,
+        "is_archived": False,
+        "mute_notifications": False,
+    }
+
     async def create_group(self, group_data: GroupCreate, user_id: str, db: AsyncSession) -> GroupResponse:
         existing_query = select(Group).where(Group.name == group_data.name)
         existing_result = await db.execute(existing_query)
@@ -47,6 +58,7 @@ class CommunityService:
             rules=group_data.rules,
             tags=group_data.tags,
             location=group_data.location,
+            settings=dict(self.DEFAULT_SETTINGS),
             created_by=user_id,
             member_count=1,
         )
@@ -101,6 +113,14 @@ class CommunityService:
         is_member = await self._check_membership(str(post_data.group_id), user_id, db)
         if not is_member:
             raise HTTPException(status_code=403, detail="Vous devez être membre du groupe")
+
+        group_result = await db.execute(select(Group).where(Group.id == _to_uuid(post_data.group_id)))
+        group = group_result.scalar_one_or_none()
+        if group and group.settings:
+            can_post = group.settings.get("members_can_post", True)
+            is_admin = await self._check_group_admin(str(post_data.group_id), user_id, db)
+            if not can_post and not is_admin:
+                raise HTTPException(status_code=403, detail="La publication est désactivée pour les membres")
 
         post = Post(
             title=post_data.title,
@@ -444,10 +464,16 @@ class CommunityService:
         ]
 
     async def send_group_message(self, group_id: str, user_id: str, content: str, db: AsyncSession) -> dict:
-        # Vérifier que l'utilisateur est membre
         is_member = await self._check_membership(group_id, user_id, db)
         if not is_member:
             raise HTTPException(status_code=403, detail="Vous devez être membre du groupe")
+
+        group_result = await db.execute(select(Group).where(Group.id == _to_uuid(group_id)))
+        group = group_result.scalar_one_or_none()
+        if group and group.settings and group.settings.get("messaging_blocked", False):
+            is_admin = await self._check_group_admin(group_id, user_id, db)
+            if not is_admin:
+                raise HTTPException(status_code=403, detail="La messagerie est désactivée dans ce groupe")
 
         msg = GroupMessage(
             content=content,
@@ -472,6 +498,185 @@ class CommunityService:
             "is_edited": msg.is_edited,
             "created_at": msg.created_at.isoformat() if msg.created_at else None,
         }
+
+    # ── Gestion des paramètres du groupe ──────────────────────────────────────
+
+    async def update_group_settings(self, group_id: str, settings: dict, user_id: str, db: AsyncSession) -> GroupResponse:
+        query = select(Group).where(Group.id == _to_uuid(group_id))
+        result = await db.execute(query)
+        group = result.scalar_one_or_none()
+        if not group:
+            raise HTTPException(status_code=404, detail="Groupe non trouvé")
+        is_admin = await self._check_group_admin(group_id, user_id, db)
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Seuls les administrateurs peuvent modifier les paramètres")
+
+        current = dict(group.settings or self.DEFAULT_SETTINGS)
+        for key, value in settings.items():
+            if key in self.DEFAULT_SETTINGS and value is not None:
+                current[key] = value
+        group.settings = current
+        await db.commit()
+        await db.refresh(group)
+        return await self._group_to_response(group, user_id, db)
+
+    async def toggle_messaging(self, group_id: str, user_id: str, db: AsyncSession) -> dict:
+        query = select(Group).where(Group.id == _to_uuid(group_id))
+        result = await db.execute(query)
+        group = result.scalar_one_or_none()
+        if not group:
+            raise HTTPException(status_code=404, detail="Groupe non trouvé")
+        is_admin = await self._check_group_admin(group_id, user_id, db)
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Seuls les administrateurs peuvent gérer la messagerie")
+
+        current = dict(group.settings or self.DEFAULT_SETTINGS)
+        current["messaging_blocked"] = not current.get("messaging_blocked", False)
+        group.settings = current
+        await db.commit()
+        status = "bloquée" if current["messaging_blocked"] else "réactivée"
+        return {"message": f"Messagerie {status}", "messaging_blocked": current["messaging_blocked"]}
+
+    async def archive_group(self, group_id: str, user_id: str, db: AsyncSession) -> dict:
+        query = select(Group).where(Group.id == _to_uuid(group_id))
+        result = await db.execute(query)
+        group = result.scalar_one_or_none()
+        if not group:
+            raise HTTPException(status_code=404, detail="Groupe non trouvé")
+        if str(group.created_by) != user_id:
+            raise HTTPException(status_code=403, detail="Seul le fondateur peut archiver le groupe")
+
+        current = dict(group.settings or self.DEFAULT_SETTINGS)
+        current["is_archived"] = not current.get("is_archived", False)
+        group.settings = current
+        group.is_active = not current["is_archived"]
+        await db.commit()
+        status = "archivé" if current["is_archived"] else "désarchivé"
+        return {"message": f"Groupe {status}", "is_archived": current["is_archived"]}
+
+    # ── Transfert de propriété ────────────────────────────────────────────────
+
+    async def transfer_ownership(self, group_id: str, new_owner_id: str, user_id: str, db: AsyncSession) -> dict:
+        if str(user_id) == str(new_owner_id):
+            raise HTTPException(status_code=400, detail="Vous êtes déjà le propriétaire")
+        query = select(Group).where(Group.id == _to_uuid(group_id))
+        result = await db.execute(query)
+        group = result.scalar_one_or_none()
+        if not group:
+            raise HTTPException(status_code=404, detail="Groupe non trouvé")
+        if str(group.created_by) != user_id:
+            raise HTTPException(status_code=403, detail="Seul le fondateur peut transférer la propriété")
+
+        is_new_owner_member = await self._check_membership(group_id, new_owner_id, db)
+        if not is_new_owner_member:
+            raise HTTPException(status_code=400, detail="L'utilisateur doit être membre du groupe")
+
+        old_owner_q = group_members.update().where(
+            and_(group_members.c.group_id == _to_uuid(group_id), group_members.c.user_id == _to_uuid(user_id))
+        ).values(role=GroupRole.ADMIN.value)
+        await db.execute(old_owner_q)
+
+        new_owner_q = group_members.update().where(
+            and_(group_members.c.group_id == _to_uuid(group_id), group_members.c.user_id == _to_uuid(new_owner_id))
+        ).values(role=GroupRole.OWNER.value)
+        await db.execute(new_owner_q)
+
+        group.created_by = _to_uuid(new_owner_id)
+        await db.commit()
+        return {"message": "Propriété transférée avec succès"}
+
+    # ── Gestion des demandes d'adhésion ───────────────────────────────────────
+
+    async def get_join_requests(self, group_id: str, user_id: str, db: AsyncSession) -> list:
+        is_admin = await self._check_group_admin(group_id, user_id, db)
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Seuls les administrateurs peuvent voir les demandes")
+        result = await db.execute(
+            select(GroupJoinRequest, User)
+            .join(User, User.id == GroupJoinRequest.user_id)
+            .where(
+                GroupJoinRequest.group_id == _to_uuid(group_id),
+                GroupJoinRequest.status == "pending",
+            )
+            .order_by(GroupJoinRequest.created_at.desc())
+        )
+        rows = result.all()
+        return [
+            {
+                "id": str(r.GroupJoinRequest.id),
+                "user_id": str(r.GroupJoinRequest.user_id),
+                "username": r.User.username or "",
+                "full_name": r.User.full_name or r.User.username or "Utilisateur",
+                "avatar_url": r.User.avatar_url,
+                "message": r.GroupJoinRequest.message,
+                "status": r.GroupJoinRequest.status,
+                "created_at": r.GroupJoinRequest.created_at.isoformat() if r.GroupJoinRequest.created_at else None,
+            }
+            for r in rows
+        ]
+
+    async def approve_join_request(self, request_id: str, user_id: str, db: AsyncSession) -> dict:
+        result = await db.execute(select(GroupJoinRequest).where(GroupJoinRequest.id == _to_uuid(request_id)))
+        req = result.scalar_one_or_none()
+        if not req:
+            raise HTTPException(status_code=404, detail="Demande non trouvée")
+        is_admin = await self._check_group_admin(str(req.group_id), user_id, db)
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Seuls les administrateurs peuvent approuver les demandes")
+
+        req.status = "approved"
+        req.reviewed_by = _to_uuid(user_id)
+        req.reviewed_at = datetime.now(timezone.utc)
+        await self._add_member_to_group(str(req.group_id), str(req.user_id), GroupRole.MEMBER, db)
+        group_result = await db.execute(select(Group).where(Group.id == req.group_id))
+        group = group_result.scalar_one_or_none()
+        if group:
+            group.member_count += 1
+        await db.commit()
+        return {"message": "Demande approuvée", "user_id": str(req.user_id)}
+
+    async def reject_join_request(self, request_id: str, user_id: str, db: AsyncSession) -> dict:
+        result = await db.execute(select(GroupJoinRequest).where(GroupJoinRequest.id == _to_uuid(request_id)))
+        req = result.scalar_one_or_none()
+        if not req:
+            raise HTTPException(status_code=404, detail="Demande non trouvée")
+        is_admin = await self._check_group_admin(str(req.group_id), user_id, db)
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Seuls les administrateurs peuvent rejeter les demandes")
+
+        req.status = "rejected"
+        req.reviewed_by = _to_uuid(user_id)
+        req.reviewed_at = datetime.now(timezone.utc)
+        await db.commit()
+        return {"message": "Demande rejetée", "user_id": str(req.user_id)}
+
+    # ── Épingler / Verrouiller les publications ───────────────────────────────
+
+    async def pin_post(self, post_id: str, user_id: str, db: AsyncSession) -> dict:
+        result = await db.execute(select(Post).where(Post.id == _to_uuid(post_id)))
+        post = result.scalar_one_or_none()
+        if not post:
+            raise HTTPException(status_code=404, detail="Publication non trouvée")
+        is_admin = await self._check_group_admin(str(post.group_id), user_id, db)
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Seuls les administrateurs peuvent épingler des publications")
+        post.is_pinned = not post.is_pinned
+        await db.commit()
+        status = "épinglée" if post.is_pinned else "dépinglée"
+        return {"message": f"Publication {status}", "is_pinned": post.is_pinned}
+
+    async def lock_post(self, post_id: str, user_id: str, db: AsyncSession) -> dict:
+        result = await db.execute(select(Post).where(Post.id == _to_uuid(post_id)))
+        post = result.scalar_one_or_none()
+        if not post:
+            raise HTTPException(status_code=404, detail="Publication non trouvée")
+        is_admin = await self._check_group_admin(str(post.group_id), user_id, db)
+        if not is_admin:
+            raise HTTPException(status_code=403, detail="Seuls les administrateurs peuvent verrouiller des publications")
+        post.is_locked = not post.is_locked
+        await db.commit()
+        status = "verrouillée" if post.is_locked else "déverrouillée"
+        return {"message": f"Publication {status}", "is_locked": post.is_locked}
 
     # ── Notifications ─────────────────────────────────────────────────────────
 
@@ -745,8 +950,24 @@ class CommunityService:
             updated_at=comment.updated_at, replies=[],
         )
 
+    async def _get_user_role(self, group_id: str, user_id: str, db: AsyncSession) -> Optional[str]:
+        query = select(group_members.c.role).where(
+            and_(
+                group_members.c.group_id == _to_uuid(group_id),
+                group_members.c.user_id == _to_uuid(user_id),
+                group_members.c.is_active == True,
+            )
+        )
+        result = await db.execute(query)
+        row = result.fetchone()
+        if row:
+            val = row.role
+            return val.value if hasattr(val, 'value') else str(val)
+        return None
+
     async def _group_to_response(self, group: Group, user_id: str, db: AsyncSession) -> GroupResponse:
         is_member = await self._check_membership(str(group.id), user_id, db)
+        user_role = await self._get_user_role(str(group.id), user_id, db) if is_member else None
         return GroupResponse(
             id=group.id, name=group.name, description=group.description,
             type=str(group.type) if group.type else 'public',
@@ -756,9 +977,11 @@ class CommunityService:
             max_members=group.max_members,
             avatar_url=group.avatar_url, banner_url=group.banner_url,
             rules=group.rules, tags=group.tags, location=group.location,
+            settings=group.settings or dict(self.DEFAULT_SETTINGS),
             member_count=group.member_count, post_count=group.post_count,
             created_at=group.created_at, updated_at=group.updated_at,
             created_by=group.created_by, is_member=is_member,
+            user_role=user_role,
         )
 
     async def _group_to_detail_response(self, group: Group, user_id: str, db: AsyncSession) -> GroupDetailResponse:

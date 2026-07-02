@@ -22,7 +22,13 @@ from api.routers.admin import router as admin_router
 from api.routers.actors import router as actors_router
 from api.routers.messaging import router as messaging_router
 from api.routers.indicators import router as indicators_router
+from api.routers.v1.sectors import router as sectors_router
 from api.routers.health import health_router
+from api.routers.calendar import router as calendar_router
+from api.routers.reports import router as reports_router
+from api.routers.payments import router as payments_router
+from api.routers.community_activity import router as community_activity_router
+from api.routers.price_alerts import router as price_alerts_router
 
 api_v1_router = APIRouter()
 
@@ -63,6 +69,9 @@ api_v1_router.include_router(
     community_router, prefix="/community", tags=["Communautés & Groupes"]
 )
 api_v1_router.include_router(
+    community_activity_router, prefix="/community", tags=["Communautés & Groupes"]
+)
+api_v1_router.include_router(
     files_router, prefix="/files", tags=["Gestion des Fichiers"]
 )
 
@@ -71,14 +80,39 @@ api_v1_router.include_router(
     geolocation_router, prefix="/geolocation", tags=["Géolocalisation"]
 )
 
+# ── Sectors ───────────────────────────────────────────────────────────────────
+api_v1_router.include_router(
+    sectors_router, prefix="/sectors", tags=["Sous-secteurs Agricoles"]
+)
+
 # ── Actors ────────────────────────────────────────────────────────────────────
 api_v1_router.include_router(
     actors_router, prefix="/actors", tags=["Acteurs Agricoles"]
 )
 
+# ── Calendar ──────────────────────────────────────────────────────────────────
+api_v1_router.include_router(
+    calendar_router, prefix="/calendar", tags=["Calendrier Agricole"]
+)
+
+# ── Reports ───────────────────────────────────────────────────────────────────
+api_v1_router.include_router(
+    reports_router, prefix="/reports", tags=["Rapports & Export"]
+)
+
+# ── Payments ──────────────────────────────────────────────────────────────────
+api_v1_router.include_router(
+    payments_router, prefix="/payments", tags=["Paiements & Abonnements"]
+)
+
 # ── Messaging ─────────────────────────────────────────────────────────────────
 api_v1_router.include_router(
     messaging_router, prefix="/messaging", tags=["Messagerie"]
+)
+
+# ── Price Alerts ──────────────────────────────────────────────────────────────
+api_v1_router.include_router(
+    price_alerts_router, prefix="/price-alerts", tags=["Alertes de Prix"]
 )
 
 # ── Admin ─────────────────────────────────────────────────────────────────────

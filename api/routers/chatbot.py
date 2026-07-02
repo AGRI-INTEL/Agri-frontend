@@ -144,6 +144,31 @@ async def send_conversation_message(
     return await chat_with_agribot(chat_message, current_user)
 
 
+class SendMessageInput(BaseModel):
+    content: str
+    conversation_id: Optional[str] = "default"
+    provider: Optional[str] = "demo"
+
+
+@router.post("/messages", response_model=ChatResponse)
+async def send_message(
+    body: SendMessageInput,
+    current_user: User = Depends(get_current_active_user),
+):
+    """Envoie un message au chatbot (utilisé par le frontend)"""
+    conv_id = body.conversation_id or "default"
+    if conv_id in ("null", "undefined", ""):
+        conv_id = "default"
+
+    if body.provider and body.provider != "demo":
+        allowed = {"kimi", "deepseek", "openai"}
+        if body.provider in allowed:
+            _get_chatbot().switch_provider(body.provider, str(current_user.id))
+
+    chat_message = ChatMessage(message=body.content)
+    return await chat_with_agribot(chat_message, current_user)
+
+
 @router.post("/chat", response_model=ChatResponse)
 async def chat_with_agribot(
     chat_message: ChatMessage,

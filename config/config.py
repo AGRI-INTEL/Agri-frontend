@@ -47,8 +47,8 @@ class Settings(BaseSettings):
     )
     REDIS_URL: str = Field(default="redis://127.0.0.1:6379")
     ELASTICSEARCH_URL: str = Field(default="http://localhost:9200")
-    MONGODB_ENABLED: bool = True
-    ELASTICSEARCH_ENABLED: bool = True
+    MONGODB_ENABLED: bool = False
+    ELASTICSEARCH_ENABLED: bool = False
     CLOUDINARY_ENABLED: bool = False
     CLOUDINARY_CLOUD_NAME: Optional[str] = None
     CLOUDINARY_API_KEY: Optional[str] = None
@@ -58,7 +58,7 @@ class Settings(BaseSettings):
     # JWT Settings
     JWT_SECRET_KEY: str = Field(default="CHANGE_ME_openssl_rand_hex_64")
     JWT_ALGORITHM: str = "HS256"
-    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 1440
+    JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
 
     # Security
@@ -226,6 +226,21 @@ class Settings(BaseSettings):
     def is_development(self) -> bool:
         """Check if running in development"""
         return self.ENVIRONMENT.lower() == "development"
+
+    def validate_secrets(self) -> None:
+        """Raise ValueError on startup if any secret is still CHANGE_ME."""
+        if self.is_production:
+            secrets = {
+                "JWT_SECRET_KEY": self.JWT_SECRET_KEY,
+                "DEFAULT_ADMIN_PASSWORD": self.DEFAULT_ADMIN_PASSWORD,
+                "DATABASE_URL": self.DATABASE_URL,
+            }
+            for name, val in secrets.items():
+                if "CHANGE_ME" in str(val):
+                    raise ValueError(
+                        f"SECURITY CRITICAL: {name} still contains CHANGE_ME "
+                        f"in production environment. Set it in .env before starting."
+                    )
 
     def get_external_api_config(self) -> Dict[str, Optional[str]]:
         """Get external API configuration"""

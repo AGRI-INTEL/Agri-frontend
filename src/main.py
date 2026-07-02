@@ -16,6 +16,7 @@ from contextlib import asynccontextmanager
 logger = logging.getLogger(__name__)
 
 from fastapi import FastAPI, Request, Depends, status
+from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
 from fastapi.responses import JSONResponse
@@ -28,8 +29,9 @@ from api.routers.router import api_v1_router
 from api.routers.websocket import websocket_router
 from src.middleware.security import SecurityHeadersMiddleware
 from src.middleware.logging import LoggingMiddleware
-from src.middleware.security import RateLimitMiddleware
+from src.middleware.security import RateLimitMiddleware, CSRFMiddleware
 from src.services.auth import require_admin
+from fastapi.openapi.docs import get_redoc_html, get_swagger_ui_html
 
 settings = get_settings()
 
@@ -37,18 +39,34 @@ settings = get_settings()
 @asynccontextmanager
 async def lifespan(app: FastAPI):
     setup_logging()
+
+    settings.validate_secrets()
+
+    if settings.SENTRY_DSN:
+        try:
+            import sentry_sdk
+            sentry_sdk.init(
+                dsn=settings.SENTRY_DSN,
+                environment=settings.ENVIRONMENT,
+                traces_sample_rate=0.1,
+                enable_tracing=True,
+            )
+            logger.info("Sentry SDK initialized")
+        except Exception as e:
+            logger.warning("Sentry init failed (non-fatal): %s", e)
+
     try:
         from config.database import create_db_and_tables
-        await asyncio.wait_for(create_db_and_tables(), timeout=60.0)
+        await asyncio.wait_for(create_db_and_tables(), timeout=180.0)
     except asyncio.TimeoutError:
-        logger.warning("Database initialization timed out (>60s) — continuing without DB init")
+        logger.warning("Database initialization timed out (>180s) — continuing without DB init")
     except Exception as e:
         logger.warning("Database initialization warning (non-fatal): %s", e)
 
     # Start background tasks
     try:
         from src.tasks.indicator_sync import start_background_tasks
-        await asyncio.wait_for(start_background_tasks(app), timeout=5.0)
+        await asyncio.wait_for(start_background_tasks(app), timeout=10.0)
     except asyncio.TimeoutError:
         logger.warning("Background task start timed out — continuing")
     except Exception as e:
@@ -71,16 +89,41 @@ async def lifespan(app: FastAPI):
         logger.warning("Database shutdown warning: %s", e)
 
 
-_is_prod = settings.ENVIRONMENT == "production"
 app = FastAPI(
     title=settings.PROJECT_NAME,
     description="Plateforme Intelligente de Décision Agricole pour l'Afrique",
     version=settings.VERSION,
-    openapi_url=None if _is_prod else f"{settings.API_V1_STR}/openapi.json",
-    docs_url=None if _is_prod else f"{settings.API_V1_STR}/docs",
-    redoc_url=None if _is_prod else f"{settings.API_V1_STR}/redoc",
+    openapi_url=f"{settings.API_V1_STR}/openapi.json",
+    docs_url=None,
+    redoc_url=None,
+    swagger_ui_oauth2_redirect_url=None,
     lifespan=lifespan,
 )
+
+
+@app.get(f"{settings.API_V1_STR}/docs", include_in_schema=False)
+async def swagger_ui_html(request: Request):
+    if settings.is_production:
+        from src.services.auth import require_admin  # noqa
+        await require_admin(request)
+    return get_swagger_ui_html(
+        openapi_url=f"{settings.API_V1_STR}/openapi.json",
+        title=f"{settings.PROJECT_NAME} — Swagger UI",
+        swagger_js_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui-bundle.js",
+        swagger_css_url="https://cdn.jsdelivr.net/npm/swagger-ui-dist@5.9.0/swagger-ui.css",
+    )
+
+
+@app.get(f"{settings.API_V1_STR}/redoc", include_in_schema=False)
+async def redoc_html(request: Request):
+    if settings.is_production:
+        from src.services.auth import require_admin  # noqa
+        await require_admin(request)
+    return get_redoc_html(
+        openapi_url=f"{settings.API_V1_STR}/openapi.json",
+        title=f"{settings.PROJECT_NAME} — ReDoc",
+        redoc_js_url="https://cdn.jsdelivr.net/npm/redoc@2.0.0/bundles/redoc.standalone.js",
+    )
 
 
 @app.exception_handler(Exception)
@@ -94,6 +137,24 @@ async def global_exception_handler(request: Request, exc: Exception):
             "message": "An unexpected error occurred",
             "status": 500,
             "detail": str(exc) if settings.DEBUG else None,
+        },
+    )
+
+
+@app.exception_handler(RequestValidationError)
+async def validation_exception_handler(request: Request, exc: RequestValidationError):
+    """Return clean error messages for Pydantic validation errors (422)."""
+    errors = exc.errors()
+    detail = "; ".join(
+        f"{'.'.join(str(p) for p in e.get('loc', []))}: {e.get('msg', '')}"
+        for e in errors
+    ) if errors else "Validation error"
+    return JSONResponse(
+        status_code=status.HTTP_422_UNPROCESSABLE_ENTITY,
+        content={
+            "name": "ValidationError",
+            "message": detail,
+            "status": 422,
         },
     )
 
@@ -128,8 +189,9 @@ async def no_cache_api_responses(request: Request, call_next):
 
 # Middleware registration — add_middleware prepends to the stack, so last-added = outermost.
 # Desired request-processing order (outer → inner):
-#   TrustedHost → CORS → Logging → RateLimit → SecurityHeaders → Session
+#   TrustedHost → CORS → Logging → RateLimit → SecurityHeaders → Session → CSRF
 # Therefore add in reverse order:
+app.add_middleware(CSRFMiddleware, secret_key=settings.JWT_SECRET_KEY)
 app.add_middleware(SessionMiddleware, secret_key=settings.JWT_SECRET_KEY)
 app.add_middleware(SecurityHeadersMiddleware)
 app.add_middleware(RateLimitMiddleware, requests_per_minute=settings.RATE_LIMIT_PER_MINUTE)
