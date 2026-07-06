@@ -3,7 +3,6 @@ Authentication API endpoints
 """
 
 import asyncio
-import hashlib
 import secrets
 import base64
 import json
@@ -13,11 +12,13 @@ from urllib.parse import quote_plus as url_encode
 
 from fastapi import APIRouter, Depends, HTTPException, status, BackgroundTasks, Request, UploadFile, File
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from fastapi.responses import RedirectResponse
+from fastapi.responses import RedirectResponse, JSONResponse
+import logging
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy.sql import func
 from sqlalchemy import select
 from jose import jwt, JWTError
+from passlib.hash import bcrypt as _bcrypt
 
 from config.config import get_settings
 from config.database import get_db
@@ -37,6 +38,7 @@ from api.models.sql.api_keys import ApiKey
 settings = get_settings()
 router = APIRouter()
 bearer_scheme = HTTPBearer()
+logger = logging.getLogger(__name__)
 
 
 def _write_file(path: str, contents: bytes) -> None:
@@ -45,16 +47,41 @@ def _write_file(path: str, contents: bytes) -> None:
 
 
 def serialize_user(user: User) -> UserResponse:
-    user_data = {
-        key: value
-        for key, value in user.__dict__.items()
-        if not key.startswith("_") and key != "hashed_password"
-    }
-    return UserResponse.model_validate(user_data)
+    return UserResponse.model_validate({
+        "id": user.id,
+        "email": user.email,
+        "username": user.username,
+        "full_name": user.full_name,
+        "role": user.role,
+        "is_active": user.is_active,
+        "is_verified": user.is_verified,
+        "phone_number": user.phone_number,
+        "organization": user.organization,
+        "country": user.country,
+        "bio": user.bio,
+        "avatar_url": user.avatar_url,
+        "cover_url": user.cover_url,
+        "language": user.language,
+        "timezone": user.timezone,
+        "theme": user.theme,
+        "sector": user.sector,
+        "profile_role": user.profile_role,
+        "newsletter": user.newsletter,
+        "job_title": user.job_title,
+        "department": user.department,
+        "gender": user.gender,
+        "created_at": user.created_at,
+        "updated_at": user.updated_at,
+        "last_login": user.last_login,
+    })
 
 
 def _hash_api_key(raw_key: str) -> str:
-    return hashlib.sha256(raw_key.encode()).hexdigest()
+    return _bcrypt.hash(raw_key)
+
+
+def _verify_api_key(raw_key: str, key_hash: str) -> bool:
+    return _bcrypt.verify(raw_key, key_hash)
 
 
 # ── Registration & Login ──────────────────────────────────────────────────────
@@ -84,7 +111,13 @@ async def login_user(
     user_credentials: UserLogin,
     db: AsyncSession = Depends(get_db),
 ):
-    user = await AuthService.authenticate_user(db, user_credentials.username, user_credentials.password)
+    try:
+        user = await AuthService.authenticate_user(db, user_credentials.username, user_credentials.password)
+    except HTTPException:
+        raise
+    except Exception as e:
+        logger.error("Login auth error for %s: %s", user_credentials.username, e, exc_info=True)
+        raise HTTPException(status_code=status.HTTP_500_INTERNAL_SERVER_ERROR, detail="Erreur d'authentification")
     if not user:
         await AuthService.update_failed_login_attempts(db, user_credentials.username)
         raise HTTPException(
@@ -98,7 +131,7 @@ async def login_user(
         ip_address = request.client.host if request.client else "0.0.0.0"
         await session_service.create_session(str(user.id), user_agent, ip_address)
     except Exception as e:
-        print(f"⚠️  Session creation failed (non-fatal): {e}")
+        logger.warning("Session creation failed (non-fatal): %s", e)
 
     access_token_expires = timedelta(
         days=7 if user_credentials.remember_me else 0,
@@ -108,12 +141,36 @@ async def login_user(
     access_token = AuthService.create_access_token(data=token_data, expires_delta=access_token_expires)
     refresh_token = AuthService.create_refresh_token(data=token_data)
 
-    return UserLoginResponse(
-        user=serialize_user(user),
-        access_token=access_token,
-        refresh_token=refresh_token,
-        expires_in=int(access_token_expires.total_seconds()),
+    user_response = serialize_user(user)
+    response = JSONResponse(content={
+        "user": user_response.model_dump(mode='json'),
+        "access_token": access_token,
+        "refresh_token": refresh_token,
+        "expires_in": int(access_token_expires.total_seconds()),
+    })
+
+    # Set HttpOnly cookie for access_token — mitigates XSS token theft
+    cookie_max_age = int(access_token_expires.total_seconds())
+    response.set_cookie(
+        key="access_token",
+        value=access_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=cookie_max_age,
+        path="/",
     )
+    response.set_cookie(
+        key="refresh_token",
+        value=refresh_token,
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=settings.JWT_REFRESH_TOKEN_EXPIRE_DAYS * 86400,
+        path="/api/v1/auth/refresh",
+    )
+
+    return response
 
 
 # ── Session management ────────────────────────────────────────────────────────
@@ -316,20 +373,43 @@ async def check_username_availability(username_data: dict, db: AsyncSession = De
 
 # ── Avatar / Cover ────────────────────────────────────────────────────────────
 
+_ALLOWED_IMAGE_MIME = {"image/jpeg", "image/png", "image/gif", "image/webp"}
+_MAX_IMAGE_BYTES = 5 * 1024 * 1024  # 5 MB
+
+async def _validate_and_save_image(upload: UploadFile, subdir: str, user_id: str) -> str:
+    mime = (upload.content_type or "application/octet-stream").split(";")[0].strip()
+    if mime not in _ALLOWED_IMAGE_MIME:
+        raise HTTPException(status_code=400, detail=f"Type d'image non autorisé: {mime}")
+
+    ext_map = {"image/jpeg": ".jpg", "image/png": ".png", "image/gif": ".gif", "image/webp": ".webp"}
+    ext = ext_map.get(mime, ".jpg")
+
+    safe_name = f"{user_id}{ext}"
+    subdir_path = os.path.join(settings.UPLOAD_DIR, subdir)
+    os.makedirs(subdir_path, exist_ok=True)
+
+    contents = await upload.read()
+    if len(contents) > _MAX_IMAGE_BYTES:
+        raise HTTPException(status_code=400, detail="Image trop volumineuse (max 5 MB)")
+
+    file_path = os.path.normpath(os.path.join(subdir_path, safe_name))
+    if not file_path.startswith(os.path.normpath(subdir_path)):
+        raise HTTPException(status_code=400, detail="Chemin de fichier invalide")
+
+    loop = asyncio.get_running_loop()
+    await loop.run_in_executor(None, lambda: _write_file(file_path, contents))
+
+    return f"/static/{subdir}/{safe_name}"
+
+
 @router.post("/avatar", response_model=UserResponse)
 async def upload_avatar(
     avatar: UploadFile = File(...),
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    os.makedirs(os.path.join(settings.UPLOAD_DIR, "avatars"), exist_ok=True)
-    ext = os.path.splitext(avatar.filename or "")[1] or ".jpg"
-    safe_name = f"{current_user.id}{ext}"
-    file_path = os.path.join(settings.UPLOAD_DIR, "avatars", safe_name)
-    contents = await avatar.read()
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, lambda: _write_file(file_path, contents))
-    current_user.avatar_url = f"/static/avatars/{safe_name}"
+    url = _validate_and_save_image(avatar, "avatars", str(current_user.id))
+    current_user.avatar_url = url
     await db.commit()
     await db.refresh(current_user)
     return serialize_user(current_user)
@@ -341,14 +421,8 @@ async def upload_cover(
     current_user: User = Depends(get_current_active_user),
     db: AsyncSession = Depends(get_db),
 ):
-    os.makedirs(os.path.join(settings.UPLOAD_DIR, "covers"), exist_ok=True)
-    ext = os.path.splitext(cover.filename or "")[1] or ".jpg"
-    safe_name = f"{current_user.id}{ext}"
-    file_path = os.path.join(settings.UPLOAD_DIR, "covers", safe_name)
-    contents = await cover.read()
-    loop = asyncio.get_running_loop()
-    await loop.run_in_executor(None, lambda: _write_file(file_path, contents))
-    current_user.cover_url = f"/static/covers/{safe_name}"
+    url = _validate_and_save_image(cover, "covers", str(current_user.id))
+    current_user.cover_url = url
     await db.commit()
     await db.refresh(current_user)
     return serialize_user(current_user)
@@ -365,6 +439,7 @@ async def get_user_preferences(current_user: User = Depends(get_current_active_u
         "theme": current_user.theme,
         "notifications": prefs.get("notifications", {}),
         "privacy": prefs.get("privacy", {}),
+        "community": prefs.get("community", {}),
     }
 
 
@@ -384,12 +459,14 @@ async def update_user_preferences(
     if "theme" in preferences:
         current_user.theme = preferences["theme"]
 
-    if "notifications" in preferences or "privacy" in preferences:
+    if "notifications" in preferences or "privacy" in preferences or "community" in preferences:
         prefs = copy.deepcopy(current_user.notification_prefs or {})
         if "notifications" in preferences:
             prefs["notifications"] = preferences["notifications"]
         if "privacy" in preferences:
             prefs["privacy"] = preferences["privacy"]
+        if "community" in preferences:
+            prefs["community"] = preferences["community"]
         current_user.notification_prefs = prefs
         flag_modified(current_user, "notification_prefs")
 
@@ -400,6 +477,7 @@ async def update_user_preferences(
         "theme": current_user.theme,
         "notifications": (current_user.notification_prefs or {}).get("notifications", {}),
         "privacy": (current_user.notification_prefs or {}).get("privacy", {}),
+        "community": (current_user.notification_prefs or {}).get("community", {}),
     }
 
 
@@ -611,12 +689,8 @@ async def delete_api_key(
 # ── OAuth helpers ─────────────────────────────────────────────────────────────
 
 def _build_backend_url() -> str:
-    if settings.ENVIRONMENT == "production":
-        _loopback = {"localhost", "127.0.0.1", "0.0.0.0", "::1"}
-        for _host in settings.ALLOWED_HOSTS:
-            if _host not in _loopback:
-                return f"https://{_host}"
-        return "https://agriintel360.lsgrouptogo.com"
+    if settings.is_production:
+        return settings.FRONTEND_URL.rstrip("/")
     return "http://localhost:8000"
 
 
@@ -658,10 +732,31 @@ def _oauth_redirect(frontend_url: str, user: User) -> RedirectResponse:
     token_json = json.dumps({
         "access_token": response_data["access_token"],
         "refresh_token": response_data["refresh_token"],
-        "user": {"id": str(user.id), "email": user.email, "username": user.username, "full_name": user.full_name},
+        "user": {
+            "id": str(user.id),
+            "email": user.email,
+            "username": user.username,
+            "full_name": user.full_name,
+            "role": user.role.value if hasattr(user.role, 'value') else str(user.role),
+            "is_verified": user.is_verified,
+            "is_active": user.is_active,
+            "avatar_url": user.avatar_url,
+            "language": user.language or "fr",
+            "created_at": str(user.created_at),
+        },
     })
-    encoded = base64.b64encode(token_json.encode()).decode()
-    return RedirectResponse(url=f"{frontend_url}/auth/callback?data={encoded}")
+    encoded = base64.urlsafe_b64encode(token_json.encode()).decode()
+    response = RedirectResponse(url=f"{frontend_url}/auth/callback?data={encoded}")
+    response.set_cookie(
+        key="access_token",
+        value=response_data["access_token"],
+        httponly=True,
+        secure=True,
+        samesite="lax",
+        max_age=3600,
+        path="/",
+    )
+    return response
 
 
 # ── OAuth Google ──────────────────────────────────────────────────────────────

@@ -2,6 +2,7 @@
 Chatbot API endpoints
 """
 
+import uuid
 from fastapi import APIRouter, Depends, HTTPException, Form, UploadFile, File
 from pydantic import BaseModel
 from typing import List, Dict, Any, Optional
@@ -13,8 +14,10 @@ from api.models.sql.user import User
 
 router = APIRouter()
 
-# In-memory conversation history per user (keyed by user_id)
-_chat_histories: dict = {}
+# In-memory conversation store per user: user_id -> { conv_id -> [messages] }
+_chat_store: Dict[str, Dict[str, List[Dict[str, Any]]]] = {}
+# Conversation metadata: user_id -> { conv_id -> { title, created_at, updated_at } }
+_conv_meta: Dict[str, Dict[str, Dict[str, str]]] = {}
 
 
 class ChatMessage(BaseModel):
@@ -33,16 +36,16 @@ class ChatResponse(BaseModel):
 
 
 class ProviderSwitch(BaseModel):
-    provider: str  # "kimi" | "deepseek" | "openai"
+    provider: str
 
 
 class ChatFeedback(BaseModel):
     message_id: str
-    rating: int  # 1 = 👍, -1 = 👎
+    rating: int
     comment: Optional[str] = None
 
 
-class Message(BaseModel):
+class MessageOut(BaseModel):
     id: str
     role: str
     content: str
@@ -52,57 +55,101 @@ class Message(BaseModel):
     conversation_id: str = "default"
 
 
-class Conversation(BaseModel):
+class ConversationOut(BaseModel):
     id: str
     title: str
     updated_at: str
     message_count: int = 0
-    messages: Optional[List[Message]] = None
+    messages: Optional[List[MessageOut]] = None
 
 
-@router.get("/conversations", response_model=List[Conversation])
+class MessageInput(BaseModel):
+    content: str
+    provider: Optional[str] = "kimi"
+
+
+class SendMessageInput(BaseModel):
+    content: str
+    conversation_id: Optional[str] = None
+    provider: Optional[str] = "kimi"
+
+
+def _get_user_store(user_id: str) -> Dict[str, List[Dict[str, Any]]]:
+    if user_id not in _chat_store:
+        _chat_store[user_id] = {}
+    return _chat_store[user_id]
+
+
+def _get_user_meta(user_id: str) -> Dict[str, Dict[str, str]]:
+    if user_id not in _conv_meta:
+        _conv_meta[user_id] = {}
+    return _conv_meta[user_id]
+
+
+def _ensure_conv(user_id: str, conv_id: str) -> str:
+    store = _get_user_store(user_id)
+    if conv_id not in store:
+        store[conv_id] = []
+    return conv_id
+
+
+@router.get("/conversations", response_model=List[ConversationOut])
 async def list_conversations(
     current_user: User = Depends(get_current_active_user)
 ):
-    """Liste les conversations du chatbot"""
     user_id = str(current_user.id)
-    history = _chat_histories.get(user_id, [])
-    if history:
-        return [Conversation(
-            id="default", 
-            title="Analyse en cours", 
-            updated_at=datetime.now(timezone.utc).isoformat(),
-            message_count=len(history)
-        )]
-    return []
+    store = _get_user_store(user_id)
+    meta = _get_user_meta(user_id)
+    convs = []
+    for cid in store:
+        m = meta.get(cid, {})
+        convs.append(ConversationOut(
+            id=cid,
+            title=m.get("title", "Analyse en cours"),
+            updated_at=m.get("updated_at", datetime.now(timezone.utc).isoformat()),
+            message_count=len(store[cid]) // 2,
+        ))
+    convs.sort(key=lambda c: c.updated_at, reverse=True)
+    return convs
 
 
-@router.post("/conversations", response_model=Conversation)
+@router.post("/conversations", response_model=ConversationOut)
 async def create_conversation(
     current_user: User = Depends(get_current_active_user)
 ):
-    """Crée une nouvelle conversation"""
-    return Conversation(
-        id="default", 
-        title="Nouvelle conversation", 
-        updated_at=datetime.now(timezone.utc).isoformat(),
+    user_id = str(current_user.id)
+    conv_id = str(uuid.uuid4())
+    _ensure_conv(user_id, conv_id)
+    now = datetime.now(timezone.utc).isoformat()
+    _get_user_meta(user_id)[conv_id] = {
+        "title": "Nouvelle conversation",
+        "created_at": now,
+        "updated_at": now,
+    }
+    return ConversationOut(
+        id=conv_id,
+        title="Nouvelle conversation",
+        updated_at=now,
         message_count=0,
-        messages=[]
+        messages=[],
     )
 
 
-@router.get("/conversations/{conversation_id}", response_model=Conversation)
+@router.get("/conversations/{conversation_id}", response_model=ConversationOut)
 async def get_conversation_detail(
     conversation_id: str,
     current_user: User = Depends(get_current_active_user)
 ):
-    """Récupère les détails et messages d'une conversation"""
     user_id = str(current_user.id)
-    history = _chat_histories.get(user_id, [])
+    _ensure_conv(user_id, conversation_id)
+    store = _get_user_store(user_id)
+    meta = _get_user_meta(user_id)
+    m = meta.get(conversation_id, {})
+
     messages = []
-    for i, h in enumerate(history):
-        messages.append(Message(
-            id=f"msg-{i}",
+    for i, h in enumerate(store.get(conversation_id, [])):
+        messages.append(MessageOut(
+            id=h.get("id", f"msg-{i}"),
             role=h["role"],
             content=h["content"],
             created_at=str(h.get("timestamp", datetime.now(timezone.utc).isoformat())),
@@ -110,19 +157,14 @@ async def get_conversation_detail(
             status="read",
             media_type="text",
         ))
-    
-    return Conversation(
+
+    return ConversationOut(
         id=conversation_id,
-        title="Analyse en cours" if messages else "Nouvelle conversation",
-        updated_at=datetime.now(timezone.utc).isoformat(),
+        title=m.get("title", "Analyse en cours" if messages else "Nouvelle conversation"),
+        updated_at=m.get("updated_at", datetime.now(timezone.utc).isoformat()),
         message_count=len(messages),
-        messages=messages
+        messages=messages,
     )
-
-
-class MessageInput(BaseModel):
-    content: str
-    provider: Optional[str] = "demo"
 
 
 @router.post("/conversations/{conversation_id}/messages", response_model=ChatResponse)
@@ -131,12 +173,12 @@ async def send_conversation_message(
     body: MessageInput,
     current_user: User = Depends(get_current_active_user)
 ):
-    """Envoie un message dans une conversation (JSON body)"""
     if conversation_id in ("null", "undefined", ""):
         conversation_id = "default"
+    _ensure_conv(str(current_user.id), conversation_id)
 
     if body.provider:
-        allowed = {"kimi", "deepseek", "openai", "demo"}
+        allowed = {"kimi", "deepseek", "openai"}
         if body.provider in allowed:
             _get_chatbot().switch_provider(body.provider, str(current_user.id))
 
@@ -144,26 +186,21 @@ async def send_conversation_message(
     return await chat_with_agribot(chat_message, current_user)
 
 
-class SendMessageInput(BaseModel):
-    content: str
-    conversation_id: Optional[str] = "default"
-    provider: Optional[str] = "demo"
-
-
 @router.post("/messages", response_model=ChatResponse)
 async def send_message(
     body: SendMessageInput,
     current_user: User = Depends(get_current_active_user),
 ):
-    """Envoie un message au chatbot (utilisé par le frontend)"""
+    user_id = str(current_user.id)
     conv_id = body.conversation_id or "default"
     if conv_id in ("null", "undefined", ""):
         conv_id = "default"
+    _ensure_conv(user_id, conv_id)
 
-    if body.provider and body.provider != "demo":
+    if body.provider:
         allowed = {"kimi", "deepseek", "openai"}
         if body.provider in allowed:
-            _get_chatbot().switch_provider(body.provider, str(current_user.id))
+            _get_chatbot().switch_provider(body.provider, user_id)
 
     chat_message = ChatMessage(message=body.content)
     return await chat_with_agribot(chat_message, current_user)
@@ -174,26 +211,39 @@ async def chat_with_agribot(
     chat_message: ChatMessage,
     current_user: User = Depends(get_current_active_user)
 ):
-    """Envoie un message au chatbot AgriBot"""
     try:
-        response = await process_chat_message(chat_message.message, str(current_user.id))
-
-        # Stocker dans l'historique en mémoire
         user_id = str(current_user.id)
-        if user_id not in _chat_histories:
-            _chat_histories[user_id] = []
-        _chat_histories[user_id].append({
+        response = await process_chat_message(chat_message.message, user_id)
+
+        ts = response["timestamp"]
+        store = _get_user_store(user_id)
+        meta = _get_user_meta(user_id)
+
+        conv_id = None
+        for cid, msgs in store.items():
+            conv_id = cid
+            break
+        if not conv_id:
+            conv_id = str(uuid.uuid4())
+            store[conv_id] = []
+            now = datetime.now(timezone.utc).isoformat()
+            meta[conv_id] = {"title": "Analyse en cours", "created_at": now, "updated_at": now}
+
+        store[conv_id].append({
+            "id": f"user-{uuid.uuid4().hex[:8]}",
             "role": "user",
             "content": chat_message.message,
-            "timestamp": response["timestamp"],
+            "timestamp": ts,
         })
-        _chat_histories[user_id].append({
+        store[conv_id].append({
+            "id": f"asst-{uuid.uuid4().hex[:8]}",
             "role": "assistant",
             "content": response["message"],
-            "timestamp": response["timestamp"],
+            "timestamp": ts,
         })
-        # Garder les 50 derniers messages
-        _chat_histories[user_id] = _chat_histories[user_id][-50:]
+        store[conv_id] = store[conv_id][-50:]
+        meta[conv_id]["updated_at"] = ts
+        meta[conv_id]["title"] = chat_message.message[:60]
 
         return ChatResponse(
             type=response["type"],
@@ -201,7 +251,7 @@ async def chat_with_agribot(
             sql_query=response.get("sql_query"),
             data=response.get("data"),
             provider=response.get("provider"),
-            timestamp=str(response["timestamp"]),
+            timestamp=str(ts),
             error=response["error"],
         )
     except Exception as e:
@@ -212,7 +262,6 @@ async def chat_with_agribot(
 async def get_chat_question_suggestions(
     current_user: User = Depends(get_current_active_user)
 ):
-    """Récupère les suggestions de questions"""
     return get_chat_suggestions()
 
 
@@ -220,8 +269,12 @@ async def get_chat_question_suggestions(
 async def clear_chat_history(
     current_user: User = Depends(get_current_active_user)
 ):
-    """Efface l'historique de conversation"""
-    _get_chatbot().clear_memory()
+    user_id = str(current_user.id)
+    if user_id in _chat_store:
+        del _chat_store[user_id]
+    if user_id in _conv_meta:
+        del _conv_meta[user_id]
+    _get_chatbot().clear_memory(user_id)
     return {"message": "Historique effacé avec succès"}
 
 
@@ -230,7 +283,6 @@ async def switch_llm_provider(
     body: ProviderSwitch,
     current_user: User = Depends(get_current_active_user)
 ):
-    """Bascule entre Kimi et DeepSeek"""
     allowed = {"kimi", "deepseek", "openai"}
     if body.provider not in allowed:
         raise HTTPException(status_code=400, detail=f"Provider invalide. Choisir parmi: {allowed}")
@@ -242,14 +294,13 @@ async def switch_llm_provider(
 async def get_chatbot_status(
     current_user: User = Depends(get_current_active_user)
 ):
-    """Récupère le statut du chatbot"""
     from config.config import get_settings
     settings = get_settings()
     chatbot = _get_chatbot()
 
     return {
         "status": "active",
-        "provider": chatbot.llm.model if chatbot.llm.available else "demo",
+        "provider": chatbot.llm.model if chatbot.llm.available else "kimi",
         "ai_enabled": chatbot.llm.available,
         "kimi_configured": bool(settings.OPENROUTER_API_KEY),
         "deepseek_configured": bool(settings.DEEPSEEK_API_KEY or settings.OPENROUTER_API_KEY),
@@ -259,7 +310,7 @@ async def get_chatbot_status(
             "Analyse de données agricoles",
             "Prédictions intelligentes",
             "Conseils personnalisés",
-            "Switch Kimi / DeepSeek",
+            "Switch Kimi / DeepSeek / OpenAI",
         ],
     }
 
@@ -270,7 +321,6 @@ async def analyze_image_chatbot(
     question: str = Form(default=""),
     current_user: User = Depends(get_current_active_user),
 ):
-    """Analyse une image agricole via IA vision (chatbot endpoint)"""
     import base64
     import httpx
     from config.config import get_settings
@@ -336,22 +386,27 @@ async def analyze_image_chatbot(
                 resp.raise_for_status()
                 analysis_text = resp.json()["choices"][0]["message"]["content"]
 
-            # Store in chat history
             user_id = str(current_user.id)
-            if user_id not in _chat_histories:
-                _chat_histories[user_id] = []
-            ts = datetime.now(timezone.utc).isoformat()
-            _chat_histories[user_id].append({
-                "role": "user",
-                "content": f"[Image: {file.filename}] {question}",
-                "timestamp": ts,
-            })
-            _chat_histories[user_id].append({
-                "role": "assistant",
-                "content": analysis_text,
-                "timestamp": ts,
-            })
-            _chat_histories[user_id] = _chat_histories[user_id][-50:]
+            store = _get_user_store(user_id)
+            conv_id = None
+            for cid in store:
+                conv_id = cid
+                break
+            if conv_id:
+                ts = datetime.now(timezone.utc).isoformat()
+                store[conv_id].append({
+                    "id": f"user-{uuid.uuid4().hex[:8]}",
+                    "role": "user",
+                    "content": f"[Image: {file.filename}] {question}",
+                    "timestamp": ts,
+                })
+                store[conv_id].append({
+                    "id": f"asst-{uuid.uuid4().hex[:8]}",
+                    "role": "assistant",
+                    "content": analysis_text,
+                    "timestamp": ts,
+                })
+                store[conv_id] = store[conv_id][-50:]
 
             return {
                 "status": "completed",
@@ -359,7 +414,7 @@ async def analyze_image_chatbot(
                 "analysis": analysis_text,
                 "model": model,
                 "ai_powered": True,
-                "timestamp": ts,
+                "timestamp": datetime.now(timezone.utc).isoformat(),
             }
         except Exception as e:
             return {
@@ -371,18 +426,9 @@ async def analyze_image_chatbot(
             }
     else:
         return {
-            "status": "demo",
+            "status": "unconfigured",
             "filename": file.filename,
-            "analysis": (
-                "Analyse visuelle (mode demo)\n\n"
-                "Pour activer l'analyse IA complete, configurez OPENROUTER_API_KEY dans votre fichier .env.\n\n"
-                "L'analyse visuelle peut detecter:\n"
-                "- Maladies des cultures\n"
-                "- Carences nutritionnelles\n"
-                "- Etat du sol\n"
-                "- Sante du betail\n"
-                "- Qualite des recoltes"
-            ),
+            "analysis": "Analyse d'image non disponible : aucune clé API IA configurée. Configurez OPENAI_API_KEY ou OPENROUTER_API_KEY dans le fichier .env.",
             "ai_powered": False,
             "timestamp": datetime.now(timezone.utc).isoformat(),
         }
@@ -393,10 +439,8 @@ async def submit_feedback(
     body: ChatFeedback,
     current_user: User = Depends(get_current_active_user),
 ):
-    """Soumettre un feedback 👍/👎 sur une réponse du chatbot"""
     if body.rating not in (1, -1):
         raise HTTPException(status_code=400, detail="rating doit être 1 (👍) ou -1 (👎)")
-    # Stocker en mémoire (à persister en DB dans une vraie implémentation)
     label = "positif" if body.rating == 1 else "négatif"
     return {
         "message": f"Feedback {label} enregistré pour le message {body.message_id}",
@@ -409,7 +453,11 @@ async def submit_feedback(
 async def get_chat_history(
     current_user: User = Depends(get_current_active_user),
 ):
-    """Historique de conversation de l'utilisateur connecté"""
     user_id = str(current_user.id)
-    history = _chat_histories.get(user_id, [])
-    return {"history": history, "count": len(history)}
+    store = _get_user_store(user_id)
+    all_msgs = []
+    for cid, msgs in store.items():
+        for m in msgs:
+            all_msgs.append({**m, "conversation_id": cid})
+    all_msgs.sort(key=lambda x: x.get("timestamp", ""))
+    return {"history": all_msgs, "count": len(all_msgs)}

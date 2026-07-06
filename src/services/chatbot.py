@@ -5,9 +5,11 @@ Assistant conversationnel pour analyse de données agricoles africaines
 
 import re
 import json
+
 import httpx
 from typing import List, Dict, Any, Optional
-from datetime import datetime
+from datetime import datetime, timezone
+from enum import Enum
 
 from sqlalchemy import create_engine, text
 from loguru import logger
@@ -22,11 +24,43 @@ ALLOWED_TABLES = {
     'price_data', 'predictions', 'alerts'
 }
 
-# Mots-clés SQL dangereux
-FORBIDDEN_SQL_KEYWORDS = [
+ALLOWED_COLUMNS = {
+    'countries': {'id', 'name', 'iso_code', 'region', 'gdp', 'population', 'agricultural_land_percent'},
+    'crops': {'id', 'name', 'scientific_name', 'category', 'growth_period_days', 'water_requirement'},
+    'productions': {'id', 'country_id', 'crop_id', 'year', 'season', 'area_harvested_ha', 'production_tonnes', 'yield_tonnes_per_ha', 'producer_price_usd'},
+    'weather_data': {'id', 'country_id', 'date', 'temperature_celsius', 'humidity_percent', 'precipitation_mm', 'wind_speed_kmh'},
+    'price_data': {'id', 'country_id', 'crop_id', 'date', 'price_usd_per_kg', 'market_name', 'supply_level', 'demand_level'},
+    'predictions': {'id', 'country_id', 'crop_id', 'prediction_type', 'target_date', 'predicted_value', 'confidence_score'},
+    'alerts': {'id', 'title', 'message', 'alert_type', 'severity', 'country_id', 'crop_id'},
+}
+
+# Mots-clés SQL dangereux — refus absolu
+FORBIDDEN_SQL_KEYWORDS = {
     'insert', 'update', 'delete', 'drop', 'truncate', 'alter',
-    'create', 'exec', 'execute', 'sp_', 'xp_', '--', '/*', '*/', ';'
-]
+    'create', 'exec', 'execute', 'sp_', 'xp_', '--', '/*', '*/', ';',
+    'select into', 'copy', 'pg_sleep', 'pg_read_file',
+    'information_schema', 'pg_catalog', 'pg_class', 'pg_proc',
+    'vacuum', 'cluster', 'reindex', 'listen', 'notify',
+    'unlisten', 'load', 'do', 'declare',
+}
+
+ALLOWED_FUNCTIONS = {
+    'count', 'sum', 'avg', 'min', 'max', 'coalesce',
+    'round', 'floor', 'ceil', 'abs',
+    'extract', 'date_trunc', 'cast',
+    'concat', 'lower', 'upper', 'trim',
+    'now', 'current_date', 'current_timestamp',
+}
+
+
+class SqlValidationError(Enum):
+    OK = "ok"
+    NOT_SELECT = "not_select"
+    FORBIDDEN_KEYWORD = "forbidden_keyword"
+    UNKNOWN_TABLE = "unknown_table"
+    UNKNOWN_COLUMN = "unknown_column"
+    FORBIDDEN_FUNCTION = "forbidden_function"
+    SYNTAX_ERROR = "syntax_error"
 
 
 def _build_system_prompt() -> str:
@@ -81,7 +115,7 @@ class OpenRouterLLM:
         elif self.provider == "openai" and self.settings.OPENAI_API_KEY:
             self.api_key = self.settings.OPENAI_API_KEY
             self.base_url = "https://api.openai.com/v1"
-            self.model = "gpt-3.5-turbo"
+            self.model = "gpt-4o-mini"
             self.available = True
         else:
             self.available = False
@@ -103,18 +137,23 @@ class OpenRouterLLM:
             "model": self.model,
             "messages": messages,
             "temperature": temperature,
-            "max_tokens": 1500,
+            "max_tokens": 800,
         }
 
-        async with httpx.AsyncClient(timeout=30.0) as client:
-            response = await client.post(
-                f"{self.base_url}/chat/completions",
-                headers=headers,
-                json=payload,
-            )
-            response.raise_for_status()
-            data = response.json()
-            return data["choices"][0]["message"]["content"]
+        try:
+            async with httpx.AsyncClient(timeout=20.0) as client:
+                response = await client.post(
+                    f"{self.base_url}/chat/completions",
+                    headers=headers,
+                    json=payload,
+                )
+                response.raise_for_status()
+                data = response.json()
+                return data["choices"][0]["message"]["content"]
+        except httpx.TimeoutException:
+            raise RuntimeError(f"Le modèle {self.model} a mis trop de temps à répondre")
+        except httpx.HTTPStatusError as e:
+            raise RuntimeError(f"Erreur API ({e.response.status_code}): {e.response.text[:200]}")
 
     def switch_provider(self, provider: str):
         """Bascule entre kimi, deepseek, openai"""
@@ -159,20 +198,33 @@ class AgriChatbot:
         user_id = user_id or "anonymous"
         return self.user_providers.get(user_id, self.settings.DEFAULT_LLM_PROVIDER)
 
-    def _is_safe_query(self, sql: str) -> bool:
+    def _is_safe_query(self, sql: str) -> SqlValidationError:
+        if not sql or not sql.strip():
+            return SqlValidationError.SYNTAX_ERROR
         sql_lower = sql.lower().strip()
         if not sql_lower.startswith("select"):
-            return False
+            return SqlValidationError.NOT_SELECT
+
         for kw in FORBIDDEN_SQL_KEYWORDS:
             if kw in sql_lower:
-                return False
-        # Ensure only allowed tables are referenced
-        import re as _re
-        table_refs = _re.findall(r'\b(from|join)\s+(\w+)', sql_lower)
-        for _, tbl in table_refs:
+                logger.warning("SQL blocked: forbidden keyword '%s' in: %.100s", kw, sql)
+                return SqlValidationError.FORBIDDEN_KEYWORD
+
+        from_tables = re.findall(r'\bfrom\s+["\']?(\w+)["\']?', sql_lower)
+        join_tables = re.findall(r'\bjoin\s+["\']?(\w+)["\']?', sql_lower)
+        all_refs = from_tables + join_tables
+        for tbl in all_refs:
             if tbl not in ALLOWED_TABLES:
-                return False
-        return True
+                logger.warning("SQL blocked: unknown table '%s' in: %.100s", tbl, sql)
+                return SqlValidationError.UNKNOWN_TABLE
+
+        func_calls = re.findall(r'(?<=\W)([a-z_]+)\s*\(', sql_lower)
+        for func in func_calls:
+            if func not in ALLOWED_FUNCTIONS and func not in from_tables and func not in join_tables:
+                logger.warning("SQL blocked: forbidden function '%s' in: %.100s", func, sql)
+                return SqlValidationError.FORBIDDEN_FUNCTION
+
+        return SqlValidationError.OK
 
     def _extract_sql(self, text: str) -> Optional[str]:
         match = re.search(r'```sql\s*(.*?)\s*```', text, re.DOTALL | re.IGNORECASE)
@@ -181,7 +233,9 @@ class AgriChatbot:
         return match.group(1).strip() if match else None
 
     async def _execute_sql(self, sql: str) -> Optional[List[Dict]]:
-        if not self._is_safe_query(sql):
+        validation = self._is_safe_query(sql)
+        if validation != SqlValidationError.OK:
+            logger.warning("SQL execution blocked (validation=%s)", validation.value)
             return None
         engine = self._get_db_engine()
         if not engine:
@@ -193,7 +247,8 @@ class AgriChatbot:
                 result = conn.execute(text(sql))
                 cols = list(result.keys())
                 return [dict(zip(cols, row)) for row in result.fetchmany(100)]
-        except Exception:
+        except Exception as exc:
+            logger.warning("SQL execution failed: %s", exc)
             return None
 
     def _classify_question(self, question: str) -> str:
@@ -238,9 +293,33 @@ class AgriChatbot:
                 "error": False,
             }
 
-        except Exception as e:
-            logger.warning(f"LLM error, falling back to demo: {e}")
+        except RuntimeError as e:
+            logger.warning(f"LLM unavailable: {e}")
             return await self._demo_response(question)
+
+        except Exception as e:
+            logger.warning(f"LLM error: {e}")
+            return {
+                "type": "error",
+                "message": (
+                    f"❌ **Erreur de connexion au modèle IA**\n\n"
+                    f"Le fournisseur **{self.llm.provider}** ({self.llm.model}) n'a pas pu répondre.\n\n"
+                    f"**Causes possibles :**\n"
+                    f"- Clé API invalide ou expirée\n"
+                    f"- Service temporairement indisponible\n"
+                    f"- Quota de requêtes dépassé\n\n"
+                    f"**Solutions :**\n"
+                    f"- Vérifiez la configuration dans le fichier `.env`\n"
+                    f"- Essayez un autre fournisseur (DeepSeek, OpenAI)\n"
+                    f"- Réessayez dans quelques instants\n\n"
+                    f"> Détail technique : `{str(e)[:120]}`"
+                ),
+                "sql_query": None,
+                "data": None,
+                "provider": self.llm.model,
+                "timestamp": datetime.now().isoformat(),
+                "error": True,
+            }
 
     async def _demo_response(self, question: str) -> Dict[str, Any]:
         """Mode démo avec réponses agricoles intelligentes basées sur les mots-clés."""

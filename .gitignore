@@ -41,6 +41,7 @@ MANIFEST
 .env.*.local
 *.env
 .envrc
+.env.docker
 
 # ============================================
 # BASES DE DONNÉES LOCALES
@@ -107,6 +108,3 @@ data/processed/
 airflow.cfg
 airflow.db
 unittests.cfg.env.docker
-.env.docker
-.env.docker
-.env.docker

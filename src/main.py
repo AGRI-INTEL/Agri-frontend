@@ -15,7 +15,7 @@ from contextlib import asynccontextmanager
 
 logger = logging.getLogger(__name__)
 
-from fastapi import FastAPI, Request, Depends, status
+from fastapi import FastAPI, HTTPException, Request, Depends, status
 from fastapi.exceptions import RequestValidationError
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.middleware.trustedhost import TrustedHostMiddleware
@@ -102,10 +102,7 @@ app = FastAPI(
 
 
 @app.get(f"{settings.API_V1_STR}/docs", include_in_schema=False)
-async def swagger_ui_html(request: Request):
-    if settings.is_production:
-        from src.services.auth import require_admin  # noqa
-        await require_admin(request)
+async def swagger_ui_html():
     return get_swagger_ui_html(
         openapi_url=f"{settings.API_V1_STR}/openapi.json",
         title=f"{settings.PROJECT_NAME} — Swagger UI",
@@ -115,10 +112,7 @@ async def swagger_ui_html(request: Request):
 
 
 @app.get(f"{settings.API_V1_STR}/redoc", include_in_schema=False)
-async def redoc_html(request: Request):
-    if settings.is_production:
-        from src.services.auth import require_admin  # noqa
-        await require_admin(request)
+async def redoc_html():
     return get_redoc_html(
         openapi_url=f"{settings.API_V1_STR}/openapi.json",
         title=f"{settings.PROJECT_NAME} — ReDoc",

@@ -2,6 +2,7 @@
 Session management services using Redis (with fallback if Redis unavailable)
 """
 
+import logging
 import redis.asyncio as redis
 import json
 from datetime import timedelta, datetime, timezone
@@ -10,6 +11,7 @@ from typing import Optional
 from config.config import get_settings
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 class SessionService:
     def __init__(self):
@@ -27,7 +29,7 @@ class SessionService:
             self._initialized = True
             return True
         except Exception as e:
-            print(f"⚠️  Redis connection failed (session service will degrade): {e}")
+            logger.warning("Redis connection failed (session service will degrade): %s", e)
             self._initialized = True
             return False
 
@@ -46,7 +48,7 @@ class SessionService:
             await self.redis_client.set(session_id, json.dumps(session_data), ex=timedelta(days=7))
             return session_id
         except Exception as e:
-            print(f"⚠️  Failed to create session: {e}")
+            logger.warning("Failed to create session: %s", e)
             return None
 
     async def get_sessions(self, user_id: str) -> list:
@@ -62,7 +64,7 @@ class SessionService:
                     sessions.append(json.loads(session_data))
             return sessions
         except Exception as e:
-            print(f"⚠️  Failed to get sessions: {e}")
+            logger.warning("Failed to get sessions: %s", e)
             return []
 
     async def revoke_session(self, session_id: str) -> bool:
@@ -73,7 +75,7 @@ class SessionService:
             await self.redis_client.delete(session_id)
             return True
         except Exception as e:
-            print(f"⚠️  Failed to revoke session: {e}")
+            logger.warning("Failed to revoke session: %s", e)
             return False
 
     async def revoke_all_other_sessions(self, user_id: str, current_session_id: Optional[str] = None) -> bool:
@@ -87,7 +89,7 @@ class SessionService:
                 await self.redis_client.delete(*keys_to_delete)
             return True
         except Exception as e:
-            print(f"⚠️  Failed to revoke other sessions: {e}")
+            logger.warning("Failed to revoke other sessions: %s", e)
             return False
 
 session_service = SessionService()

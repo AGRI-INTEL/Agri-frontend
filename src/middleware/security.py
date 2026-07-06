@@ -29,7 +29,7 @@ class CSRFMiddleware(BaseHTTPMiddleware):
                 response.set_cookie(
                     key="csrf_token",
                     value=token,
-                    httponly=True,
+                    httponly=False,  # Required for double-submit JS to read it
                     samesite="lax",
                     secure=True,
                     max_age=86400,
@@ -37,19 +37,20 @@ class CSRFMiddleware(BaseHTTPMiddleware):
             return response
 
         csrf_cookie = request.cookies.get("csrf_token")
-        csrf_header = request.headers.get("X-CSRF-Token") or request.headers.get("X-Requested-With")
+        csrf_header = request.headers.get("X-CSRF-Token")
 
+        if csrf_cookie and csrf_header and csrf_header == csrf_cookie:
+            return await call_next(request)
+
+        if request.headers.get("X-Requested-With"):
+            return await call_next(request)
+
+        from starlette.responses import JSONResponse
         if not csrf_cookie:
-            from starlette.responses import JSONResponse
             return JSONResponse(
                 {"detail": "CSRF token cookie missing. Refresh the page."},
                 status_code=403,
             )
-
-        if csrf_header and csrf_header == csrf_cookie:
-            return await call_next(request)
-
-        from starlette.responses import JSONResponse
         return JSONResponse(
             {"detail": "CSRF token validation failed."},
             status_code=403,
@@ -82,7 +83,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
             security_headers = {
                 "Content-Security-Policy": csp,
                 "X-Frame-Options": "SAMEORIGIN",
-                "X-XSS-Protection": "1; mode=block",
                 "Referrer-Policy": "strict-origin-when-cross-origin",
                 "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
                 "Permissions-Policy": (
@@ -90,16 +90,16 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                     "payment=(), usb=(), magnetometer=(), gyroscope=(), "
                     "accelerometer=(), ambient-light-sensor=(), autoplay=()"
                 ),
-                "Server": "AgriIntel360",
             }
         else:
             csp = (
                 "default-src 'self'; "
-                "script-src 'self'; "
-                "style-src 'self' 'unsafe-inline'; "
-                "img-src 'self' data:; "
-                "font-src 'self'; "
-                "connect-src 'self'; "
+                "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://accounts.google.com https://cdn.jsdelivr.net; "
+                "style-src 'self' 'unsafe-inline' https://fonts.googleapis.com https://cdn.jsdelivr.net; "
+                "img-src 'self' data: https:; "
+                "font-src 'self' https://fonts.gstatic.com https://fonts.googleapis.com; "
+                "connect-src 'self' https://accounts.google.com https://login.microsoftonline.com https://cdn.jsdelivr.net; "
+                "frame-src 'self' https://accounts.google.com; "
                 "object-src 'none'; "
                 "frame-ancestors 'none'"
             )
@@ -107,7 +107,6 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                 "Content-Security-Policy": csp,
                 "X-Frame-Options": "SAMEORIGIN",
                 "X-Content-Type-Options": "nosniff",
-                "X-XSS-Protection": "1; mode=block",
                 "Referrer-Policy": "strict-origin-when-cross-origin",
                 "Strict-Transport-Security": "max-age=31536000; includeSubDomains",
                 "Permissions-Policy": (
@@ -115,15 +114,12 @@ class SecurityHeadersMiddleware(BaseHTTPMiddleware):
                     "payment=(), usb=(), magnetometer=(), gyroscope=(), "
                     "accelerometer=(), ambient-light-sensor=(), autoplay=()"
                 ),
-                "Server": "AgriIntel360",
             }
 
         for header, value in security_headers.items():
             response.headers[header] = value
 
-        if "server" in response.headers:
-            del response.headers["server"]
-
+        response.headers["server"] = ""
         return response
 
 

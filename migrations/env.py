@@ -39,6 +39,11 @@ from api.models.sql import (  # noqa: F401  - import for metadata side effects
     Crop,
     Production,
     Alert,
+    PriceAlert,
+    Report,
+    SubscriptionPlan,
+    UserSubscription,
+    Invoice,
 )
 
 # This is the Alembic Config object, which provides
@@ -71,7 +76,10 @@ def run_migrations_offline() -> None:
 def run_migrations_online() -> None:
     """Run migrations in 'online' mode."""
     settings = get_settings()
-    engine = create_engine(settings.database_url_sync)
+    engine = create_engine(
+        settings.database_url_sync,
+        connect_args={"options": "-c statement_timeout=60000"},
+    )
 
     with engine.connect() as connection:
         context.configure(connection=connection, target_metadata=target_metadata)

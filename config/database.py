@@ -181,10 +181,6 @@ async def _run_alembic_upgrade() -> None:
         except asyncio.TimeoutError:
             logger.warning("Alembic upgrade timed out (>120s) — skipping")
     except Exception as exc:  # pragma: no cover - defensive guard
-        # Migrations are best-effort: the programmatic column check below will
-        # cover the most common case (new columns on existing tables) so the
-        # app can still boot even if Alembic cannot be invoked (e.g. when the
-        # backend is started outside the project root).
         logger.warning("Alembic upgrade skipped: %s", exc)
 
 
@@ -232,13 +228,13 @@ async def create_db_and_tables():
                 mongodb_client = AsyncIOMotorClient(settings.MONGODB_URL)
                 mongodb_db = mongodb_client.get_default_database()
                 await mongodb_db.command("ping")
-                print("✅ MongoDB connected successfully")
+                logger.info("MongoDB connected successfully")
             except Exception as mongo_exc:
-                print("⚠️ MongoDB initialization skipped or failed: %s", mongo_exc)
+                logger.warning("MongoDB initialization skipped or failed: %s", mongo_exc)
                 mongodb_client = None
                 mongodb_db = None
         else:
-            print("⚠️ MongoDB is disabled or no URL configured; skipping MongoDB initialization.")
+            logger.warning("MongoDB is disabled or no URL configured; skipping MongoDB initialization.")
 
         # Initialize Redis (non-fatal — app runs without Redis)
         if settings.REDIS_URL:
@@ -247,12 +243,12 @@ async def create_db_and_tables():
                     settings.REDIS_URL, encoding="utf-8", decode_responses=True
                 )
                 await redis_client.ping()
-                print("✅ Redis connected successfully")
+                logger.info("Redis connected successfully")
             except Exception as redis_exc:
-                print("⚠️ Redis initialization skipped or failed: %s", redis_exc)
+                logger.warning("Redis initialization skipped or failed: %s", redis_exc)
                 redis_client = None
         else:
-            print("⚠️ Redis URL not configured; continuing without Redis.")
+            logger.warning("Redis URL not configured; continuing without Redis.")
 
         # Initialize Elasticsearch if enabled
         if settings.ELASTICSEARCH_ENABLED and settings.ELASTICSEARCH_URL:
@@ -262,20 +258,20 @@ async def create_db_and_tables():
                 )
 
                 if await es_client.ping():
-                    print("✅ Elasticsearch connected successfully")
+                    logger.info("Elasticsearch connected successfully")
                 else:
-                    print("❌ Elasticsearch connection failed")
+                    logger.warning("Elasticsearch connection failed")
                     es_client = None
             except Exception as es_exc:
-                print("⚠️ Elasticsearch initialization skipped or failed: %s", es_exc)
+                logger.warning("Elasticsearch initialization skipped or failed: %s", es_exc)
                 es_client = None
         else:
-            print("⚠️ Elasticsearch is disabled or no URL configured; skipping Elasticsearch initialization.")
+            logger.warning("Elasticsearch is disabled or no URL configured; skipping Elasticsearch initialization.")
 
-        print("✅ All databases initialized successfully")
+        logger.info("All databases initialized successfully")
 
     except Exception as e:
-        print("⚠️ Database initialization error (non-fatal): %s", e)
+        logger.warning("Database initialization error (non-fatal): %s", e)
 
 
 async def close_db_connections():
@@ -285,25 +281,25 @@ async def close_db_connections():
     try:
         # Close PostgreSQL engine
         await engine.dispose()
-        print("✅ PostgreSQL connection closed")
+        logger.info("PostgreSQL connection closed")
 
         # Close MongoDB
         if mongodb_client:
             mongodb_client.close()
-            print("✅ MongoDB connection closed")
+            logger.info("MongoDB connection closed")
 
         # Close Redis
         if redis_client:
             await redis_client.close()
-            print("✅ Redis connection closed")
+            logger.info("Redis connection closed")
 
         # Close Elasticsearch
         if es_client:
             await es_client.close()
-            print("✅ Elasticsearch connection closed")
+            logger.info("Elasticsearch connection closed")
 
     except Exception as e:
-        print(f"❌ Error closing database connections: {e}")
+        logger.error("Error closing database connections: %s", e)
 
 
 # Database health check functions

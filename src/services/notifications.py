@@ -4,12 +4,9 @@ Service complet pour gérer les alertes temps réel avec multi-canaux
 """
 
 import asyncio
-import json
-from datetime import datetime, timedelta, timezone
+import logging
 from typing import List, Dict, Any, Optional, Union
 from enum import Enum
-
-from fastapi import BackgroundTasks
 
 
 try:
@@ -19,14 +16,13 @@ except ImportError:
     TwilioClient = None
     TWILIO_AVAILABLE = False
 
-import requests
 
 from config.config import get_settings
 from config.database import get_db
 from api.models.sql.user import User
-from api.models.sql.agricultural import Alert, Country, Crop
-
+from api.models.sql.agricultural import Alert
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 class AlertType(str, Enum):
@@ -145,7 +141,7 @@ class NotificationService:
         try:
             await send_email([user.email], subject, html_content)
         except Exception as e:
-            print(f"❌ Erreur envoi email notification: {e}")
+            logger.error("Erreur envoi email notification: %s", e)
     
     async def _send_sms(self, user: User, alert: Dict[str, Any]):
         """Envoie une notification par SMS"""
@@ -163,10 +159,10 @@ class NotificationService:
                 to=user.phone_number
             )
             
-            print(f"✅ SMS envoyé à {user.phone_number}: {message.sid}")
+            logger.info(" SMS envoyé à %s: %s")
             
         except Exception as e:
-            print(f"❌ Erreur envoi SMS: {e}")
+            logger.error(" Erreur envoi SMS: %s")
     
     async def _send_websocket(self, user: User, alert: Dict[str, Any]):
         """Envoie une notification via WebSocket"""
@@ -184,10 +180,10 @@ class NotificationService:
                 str(user.id)
             )
             
-            print(f"✅ WebSocket envoyé à l'utilisateur {user.id}")
+            logger.info(" WebSocket envoyé à l'utilisateur %s")
             
         except Exception as e:
-            print(f"❌ Erreur WebSocket: {e}")
+            logger.error(" Erreur WebSocket: %s")
     
     async def _send_push_notification(self, user: User, alert: Dict[str, Any]):
         """Envoie une notification push via Firebase Cloud Messaging (FCM)"""
@@ -234,12 +230,12 @@ class NotificationService:
                     json=payload,
                 )
                 if response.status_code == 200:
-                    print(f"✅ Push FCM envoyé à l'utilisateur {user.id}")
+                    logger.info(" Push FCM envoyé à l'utilisateur %s")
                 else:
-                    print(f"❌ Erreur FCM {response.status_code}: {response.text[:100]}")
+                    logger.error(" Erreur FCM %s: %s")
 
         except Exception as e:
-            print(f"❌ Erreur push notification: {e}")
+            logger.error(" Erreur push notification: %s")
     
     def _create_email_template(self, user: User, alert: Dict[str, Any]) -> str:
         """Crée le template HTML pour l'email"""
@@ -403,7 +399,7 @@ class AlertService:
                 return alert_id
                 
         except Exception as e:
-            print(f"❌ Erreur création alerte: {e}")
+            logger.error(" Erreur création alerte: %s")
             raise
     
     async def _trigger_notifications(self, alert_id: str):
@@ -425,7 +421,7 @@ class AlertService:
                 )
                 
         except Exception as e:
-            print(f"❌ Erreur notifications: {e}")
+            logger.error(" Erreur notifications: %s")
     
     async def _get_users_for_alert(self, alert_data: Dict[str, Any]) -> List[User]:
         """Récupère les utilisateurs à notifier pour une alerte"""
@@ -483,7 +479,7 @@ class AlertService:
                 )
                 
         except Exception as e:
-            print(f"❌ Erreur vérification météo: {e}")
+            logger.error(" Erreur vérification météo: %s")
     
     async def check_price_variations(self):
         """Vérifie les variations de prix et génère des alertes"""
@@ -513,7 +509,7 @@ class AlertService:
                 )
                 
         except Exception as e:
-            print(f"❌ Erreur vérification prix: {e}")
+            logger.error(" Erreur vérification prix: %s")
     
     async def get_active_alerts(self, user_id: str = None) -> List[Dict[str, Any]]:
         """Récupère les alertes actives"""
@@ -549,7 +545,7 @@ class AlertService:
                 ]
                 
         except Exception as e:
-            print(f"❌ Erreur récupération alertes: {e}")
+            logger.error(" Erreur récupération alertes: %s")
             return []
     
     async def mark_alert_as_read(self, alert_id: str, user_id: str):
@@ -567,7 +563,7 @@ class AlertService:
                     await db.commit()
                     
         except Exception as e:
-            print(f"❌ Erreur marquage alerte: {e}")
+            logger.error(" Erreur marquage alerte: %s")
 
 
 # Instance globale du service d'alertes
@@ -586,9 +582,9 @@ async def create_system_alert(title: str, message: str, severity: AlertSeverity 
 
 async def run_alert_checks():
     """Lance les vérifications périodiques d'alertes"""
-    print("🔍 Vérifications des conditions d'alertes...")
+    logger.info(" Vérifications des conditions d'alertes...")
     
     await alert_service.check_weather_conditions()
     await alert_service.check_price_variations()
     
-    print("✅ Vérifications terminées")
+    logger.info(" Vérifications terminées")

@@ -15,7 +15,7 @@ from src.services.redis import get_redis
 from api.models.sql.indicators import IndicateurValeur, CategorieIndicateurEnum
 from api.models.sql.actors import Actor, ProducteurVegetal
 from api.models.sql.agricultural import Alert
-from api.schemas.dashboard import KPIStats, ProductionDataPoint
+from api.schemas.dashboard import KPIStats, ProductionDataPoint, WeeklySummary
 
 
 router = APIRouter()
@@ -240,8 +240,8 @@ async def get_dashboard_overview(
     recent_alerts = [
         {
             "id": str(r.id),
-            "type": r.type_alerte if hasattr(r, "type_alerte") else "info",
-            "message": r.message if hasattr(r, "message") else "",
+            "type": r.alert_type or "info",
+            "message": r.message or "",
             "created_at": r.created_at.isoformat() if r.created_at else "",
         }
         for r in alerts_q.scalars().all()
@@ -294,6 +294,138 @@ async def get_dashboard_overview(
         "weather_summary": weather_summary,
     }
     await _set_cached("dashboard:overview", result)
+    return result
+
+
+async def _sector_weekly_change(db: AsyncSession, sous_secteur) -> float:
+    """% de variation de la moyenne des valeurs d'un sous-secteur :
+    7 derniers jours vs 7 jours précédents, avec repli année N vs N-1."""
+    now = datetime.now(timezone.utc)
+
+    async def _avg_between(start, end):
+        q = await db.execute(
+            select(sa_func.avg(IndicateurValeur.valeur_numerique)).where(
+                IndicateurValeur.sous_secteur == sous_secteur,
+                IndicateurValeur.valeur_numerique != None,
+                IndicateurValeur.created_at >= start,
+                IndicateurValeur.created_at < end,
+            )
+        )
+        val = q.scalar()
+        return float(val) if val is not None else None
+
+    current = await _avg_between(now - timedelta(days=7), now)
+    previous = await _avg_between(now - timedelta(days=14), now - timedelta(days=7))
+    if current is not None and previous:
+        return round(((current - previous) / previous) * 100, 1)
+
+    # Repli : comparaison annuelle
+    async def _avg_year(year):
+        q = await db.execute(
+            select(sa_func.avg(IndicateurValeur.valeur_numerique)).where(
+                IndicateurValeur.sous_secteur == sous_secteur,
+                IndicateurValeur.valeur_numerique != None,
+                IndicateurValeur.annee == year,
+            )
+        )
+        val = q.scalar()
+        return float(val) if val is not None else None
+
+    year = now.year
+    for y in (year, year - 1):
+        curr_y = await _avg_year(y)
+        prev_y = await _avg_year(y - 1)
+        if curr_y is not None and prev_y:
+            return round(((curr_y - prev_y) / prev_y) * 100, 1)
+    return 0.0
+
+
+async def _mais_price_change() -> float:
+    """% de variation du prix moyen du maïs vs la référence hebdomadaire
+    stockée en Redis (auto-alimentée)."""
+    import asyncio
+    from src.services.market_data import market_data_service
+
+    try:
+        prices = await asyncio.wait_for(
+            market_data_service.fetch_prices(crop="mais"), timeout=8
+        )
+        values = [p["price"] for p in prices if p.get("price") is not None]
+        if not values:
+            return 0.0
+        current_avg = sum(values) / len(values)
+    except Exception:
+        return 0.0
+
+    change = 0.0
+    try:
+        r = await get_redis()
+        if r is not None:
+            ref_key = "dashboard:mais_price_ref"
+            ref = await r.get(ref_key)
+            if ref is not None:
+                ref_val = float(ref)
+                if ref_val > 0:
+                    change = round(((current_avg - ref_val) / ref_val) * 100, 1)
+            # Référence glissante mise à jour chaque semaine
+            if ref is None:
+                await r.setex(ref_key, 7 * 24 * 3600, str(current_avg))
+    except Exception:
+        pass
+    return change
+
+
+@router.get("/weekly-summary", response_model=WeeklySummary)
+async def get_weekly_summary(
+    db: AsyncSession = Depends(get_db),
+):
+    """Résumé hebdomadaire du dashboard (cache 10 min)."""
+    cache_key = "dashboard:weekly_summary"
+    cached = await _get_cached(cache_key)
+    if cached is not None:
+        return cached
+
+    from api.models.sql.user import User
+    from api.models.sql.community import Post
+    from api.models.sql.actors import SousSecteursEnum
+
+    week_ago = datetime.now(timezone.utc) - timedelta(days=7)
+
+    alerts_q = await db.execute(
+        select(sa_func.count(Alert.id)).where(Alert.created_at >= week_ago)
+    )
+    alerts_count = alerts_q.scalar() or 0
+
+    members_q = await db.execute(
+        select(sa_func.count(User.id)).where(User.created_at >= week_ago)
+    )
+    new_members = members_q.scalar() or 0
+
+    posts_count = 0
+    try:
+        posts_q = await db.execute(
+            select(sa_func.count(Post.id)).where(Post.created_at >= week_ago)
+        )
+        posts_count = posts_q.scalar() or 0
+    except Exception:
+        pass
+
+    vegetal_change = 0.0
+    try:
+        vegetal_change = await _sector_weekly_change(db, SousSecteursEnum.VEGETAL)
+    except Exception:
+        pass
+
+    mais_price_change = await _mais_price_change()
+
+    result = {
+        "alerts_count": alerts_count,
+        "vegetal_change": vegetal_change,
+        "mais_price_change": mais_price_change,
+        "new_members": new_members,
+        "posts_count": posts_count,
+    }
+    await _set_cached(cache_key, result, ttl=600)
     return result
 
 

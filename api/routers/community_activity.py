@@ -14,7 +14,7 @@ from sqlalchemy import select, desc, union, literal_column, text
 from config.database import get_db
 from src.services.auth import get_current_verified_user
 from api.models.sql.user import User
-from api.models.sql.community import Post, GroupMember, Group, Comment
+from api.models.sql.community import Post, Group, Comment
 
 logger = logging.getLogger(__name__)
 router = APIRouter()

@@ -38,13 +38,11 @@ class Settings(BaseSettings):
             return v.lower() in ("true", "1", "yes")
         return bool(v)
 
-    # Database URLs
+    # Database URLs — must be set in .env; defaults are safe but non-functional
     DATABASE_URL: str = Field(
         default="postgresql://postgres:CHANGE_ME@127.0.0.1:5432/agriintel360"
     )
-    MONGODB_URL: str = Field(
-        default="mongodb://admin:CHANGE_ME@localhost:27017/agriintel360"
-    )
+    MONGODB_URL: str = Field(default="")
     REDIS_URL: str = Field(default="redis://127.0.0.1:6379")
     ELASTICSEARCH_URL: str = Field(default="http://localhost:9200")
     MONGODB_ENABLED: bool = False
@@ -56,7 +54,7 @@ class Settings(BaseSettings):
     CLOUDINARY_UPLOAD_FOLDER: str = "agriintel"
 
     # JWT Settings
-    JWT_SECRET_KEY: str = Field(default="CHANGE_ME_openssl_rand_hex_64")
+    JWT_SECRET_KEY: str = Field(default="", description="Must be set in .env — openssl rand -hex 64")
     JWT_ALGORITHM: str = "HS256"
     JWT_ACCESS_TOKEN_EXPIRE_MINUTES: int = 30
     JWT_REFRESH_TOKEN_EXPIRE_DAYS: int = 7
@@ -80,9 +78,9 @@ class Settings(BaseSettings):
             return v
         raise ValueError(v)
 
-    # Default administrator account
-    DEFAULT_ADMIN_EMAIL: str = "admin@agri.com"
-    DEFAULT_ADMIN_PASSWORD: str = Field(default="CHANGE_ME")
+    # Default administrator account — MUST be overridden in .env for production
+    DEFAULT_ADMIN_EMAIL: str = Field(default="admin@agri.com")
+    DEFAULT_ADMIN_PASSWORD: str = Field(default="", description="Must be set in .env — strong random password")
     DEFAULT_ADMIN_USERNAME: str = "admin"
     DEFAULT_ADMIN_FULL_NAME: str = "Administrateur AgriIntel360"
 
@@ -228,19 +226,30 @@ class Settings(BaseSettings):
         return self.ENVIRONMENT.lower() == "development"
 
     def validate_secrets(self) -> None:
-        """Raise ValueError on startup if any secret is still CHANGE_ME."""
+        """Raise ValueError on startup if any secret is missing or still CHANGE_ME."""
         if self.is_production:
             secrets = {
                 "JWT_SECRET_KEY": self.JWT_SECRET_KEY,
                 "DEFAULT_ADMIN_PASSWORD": self.DEFAULT_ADMIN_PASSWORD,
                 "DATABASE_URL": self.DATABASE_URL,
             }
+            if self.MONGODB_ENABLED and self.MONGODB_URL:
+                secrets["MONGODB_URL"] = self.MONGODB_URL
             for name, val in secrets.items():
-                if "CHANGE_ME" in str(val):
+                if not val or "CHANGE_ME" in str(val):
                     raise ValueError(
-                        f"SECURITY CRITICAL: {name} still contains CHANGE_ME "
+                        f"SECURITY CRITICAL: {name} is {'empty' if not val else 'still CHANGE_ME'} "
                         f"in production environment. Set it in .env before starting."
                     )
+                if "localhost" in str(val):
+                    raise ValueError(
+                        f"CONFIG ERROR: {name} uses 'localhost' — use 127.0.0.1 "
+                        f"(localhost resolves to ::1 and is refused on this server)."
+                    )
+            if "localhost" in self.REDIS_URL:
+                raise ValueError(
+                    "CONFIG ERROR: REDIS_URL uses 'localhost' — use 127.0.0.1."
+                )
 
     def get_external_api_config(self) -> Dict[str, Optional[str]]:
         """Get external API configuration"""

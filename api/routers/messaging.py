@@ -265,7 +265,9 @@ async def upload_file(
 
         os.makedirs(UPLOAD_DIR, exist_ok=True)
         safe_name = f"{uuid.uuid4().hex}{ext}"
-        file_path = os.path.join(UPLOAD_DIR, safe_name)
+        file_path = os.path.normpath(os.path.join(UPLOAD_DIR, safe_name))
+        if not file_path.startswith(os.path.normpath(UPLOAD_DIR)):
+            raise HTTPException(status_code=400, detail="Chemin de fichier invalide")
         loop = asyncio.get_running_loop()
         await loop.run_in_executor(None, lambda: _write_file(file_path, contents))
         return {

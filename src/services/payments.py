@@ -3,6 +3,7 @@ Payments & Subscriptions service
 """
 
 import uuid
+import json
 import logging
 import hashlib
 import hmac
@@ -10,81 +11,13 @@ from datetime import datetime, timezone
 from typing import Optional
 
 from sqlalchemy.ext.asyncio import AsyncSession
-from sqlalchemy import select, func, desc
+from sqlalchemy import select, desc
 
 from config.config import get_settings
-from api.models.sql.base import Base
-from api.models.sql.user import User
-from sqlalchemy import Column, String, Boolean, DateTime, Float, ForeignKey, Text
-from sqlalchemy.dialects.postgresql import UUID, JSONB
-from sqlalchemy.orm import relationship
-from sqlalchemy.sql import func as sa_func
+from api.models.sql.subscriptions import SubscriptionPlan, UserSubscription, Invoice
 
 settings = get_settings()
 logger = logging.getLogger(__name__)
-
-
-# ── SQLAlchemy Models ─────────────────────────────────────────────────────
-
-
-class SubscriptionPlan(Base):
-    __tablename__ = "subscription_plans"
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    name = Column(String(100), nullable=False, unique=True)
-    slug = Column(String(50), nullable=False, unique=True)
-    description = Column(Text, nullable=True)
-    price_monthly = Column(Float, nullable=False)
-    price_yearly = Column(Float, nullable=True)
-    currency = Column(String(3), default="XOF", nullable=False)
-    features = Column(JSONB, nullable=True)
-    limits = Column(JSONB, nullable=True)
-    is_active = Column(Boolean, default=True, nullable=False)
-    sort_order = Column(Column.Integer, default=0)
-    created_at = Column(DateTime(timezone=True), server_default=sa_func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=sa_func.now(), onupdate=sa_func.now(), nullable=False)
-
-
-class UserSubscription(Base):
-    __tablename__ = "user_subscriptions"
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    plan_id = Column(UUID(as_uuid=True), ForeignKey("subscription_plans.id"), nullable=False)
-    status = Column(String(20), default="pending", nullable=False)
-    billing_cycle = Column(String(10), default="monthly", nullable=False)
-    current_period_start = Column(DateTime(timezone=True), nullable=True)
-    current_period_end = Column(DateTime(timezone=True), nullable=True)
-    trial_end = Column(DateTime(timezone=True), nullable=True)
-    cancelled_at = Column(DateTime(timezone=True), nullable=True)
-    payment_method = Column(String(50), nullable=True)
-    auto_renew = Column(Boolean, default=True, nullable=False)
-    metadata = Column(JSONB, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=sa_func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=sa_func.now(), onupdate=sa_func.now(), nullable=False)
-
-    user = relationship("User")
-    plan = relationship("SubscriptionPlan")
-
-
-class Invoice(Base):
-    __tablename__ = "invoices"
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
-    user_id = Column(UUID(as_uuid=True), ForeignKey("users.id"), nullable=False)
-    subscription_id = Column(UUID(as_uuid=True), ForeignKey("user_subscriptions.id"), nullable=True)
-    amount = Column(Float, nullable=False)
-    currency = Column(String(3), default="XOF", nullable=False)
-    status = Column(String(20), default="pending", nullable=False)
-    payment_method = Column(String(50), nullable=True)
-    payment_reference = Column(String(255), nullable=True)
-    invoice_url = Column(String(500), nullable=True)
-    period_start = Column(DateTime(timezone=True), nullable=True)
-    period_end = Column(DateTime(timezone=True), nullable=True)
-    paid_at = Column(DateTime(timezone=True), nullable=True)
-    metadata = Column(JSONB, nullable=True)
-    created_at = Column(DateTime(timezone=True), server_default=sa_func.now(), nullable=False)
-    updated_at = Column(DateTime(timezone=True), server_default=sa_func.now(), onupdate=sa_func.now(), nullable=False)
-
-    user = relationship("User")
-    subscription = relationship("UserSubscription")
 
 
 # ── Default Plans ─────────────────────────────────────────────────────────
@@ -303,10 +236,11 @@ class PaymentsService:
 
         if signature:
             secret = settings.JWT_SECRET_KEY
+            canonical = json.dumps(payload, separators=(',', ':'), sort_keys=True)
             expected = hmac.new(
-                secret.encode(), str(payload).encode(), hashlib.sha256
+                secret.encode(), canonical.encode(), hashlib.sha256
             ).hexdigest()
-            if signature != expected:
+            if not hmac.compare_digest(signature, expected):
                 logger.warning("Signature webhook invalide")
                 return {"status": "error", "message": "Signature invalide"}
 

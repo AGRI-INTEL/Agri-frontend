@@ -17,8 +17,8 @@ class ApiKey(Base):
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     user_id = Column(UUID(as_uuid=True), ForeignKey("users.id", ondelete="CASCADE"), nullable=False, index=True)
     name = Column(String(100), nullable=False)
-    # SHA-256 of the raw key — never stored in plain text
-    key_hash = Column(String(64), nullable=False, unique=True, index=True)
+    # bcrypt hash of the raw key — never stored in plain text
+    key_hash = Column(String(128), nullable=False, unique=True, index=True)
     # First 12 chars of the raw key for display ("agri_xxxx...")
     key_prefix = Column(String(20), nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)

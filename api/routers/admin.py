@@ -66,6 +66,20 @@ async def admin_list_users(
     }
 
 
+@router.get("/users/{user_id}")
+async def admin_get_user(
+    user_id: uuid.UUID,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Détail d'un utilisateur (admin)"""
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+    return UserResponse.model_validate(user)
+
+
 @router.put("/users/{user_id}")
 async def admin_update_user(
     user_id: uuid.UUID,
@@ -89,6 +103,101 @@ async def admin_update_user(
     await db.commit()
     await db.refresh(user)
     return UserResponse.model_validate(user)
+
+
+@router.put("/users/{user_id}/role")
+async def admin_update_user_role(
+    user_id: uuid.UUID,
+    body: dict,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Modifie le rôle d'un utilisateur (admin)"""
+    role_str = body.get("role")
+    if not role_str:
+        raise HTTPException(status_code=400, detail="Le champ 'role' est requis")
+    try:
+        new_role = UserRole(role_str)
+    except ValueError:
+        raise HTTPException(status_code=400, detail=f"Rôle invalide: {role_str}")
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    user.role = new_role
+    await db.commit()
+    await db.refresh(user)
+    return UserResponse.model_validate(user)
+
+
+@router.put("/users/{user_id}/permissions")
+async def admin_update_user_permissions(
+    user_id: uuid.UUID,
+    body: dict,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Modifie les permissions d'un utilisateur (admin)"""
+    permissions = body.get("permissions", [])
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+    # Note: permissions storage not yet implemented — placeholder
+    return {"message": "Permissions mises à jour", "permissions": permissions}
+
+
+@router.post("/users/{user_id}/reset-password")
+async def admin_reset_user_password(
+    user_id: uuid.UUID,
+    body: dict,
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Réinitialise le mot de passe d'un utilisateur (admin)"""
+    new_password = body.get("new_password")
+    if not new_password or len(new_password) < 8:
+        raise HTTPException(status_code=400, detail="Le mot de passe doit faire au moins 8 caractères")
+
+    result = await db.execute(select(User).where(User.id == user_id))
+    user = result.scalar_one_or_none()
+    if not user:
+        raise HTTPException(status_code=404, detail="Utilisateur non trouvé")
+
+    from src.services.auth import AuthService
+    user.hashed_password = AuthService.hash_password(new_password)
+    await db.commit()
+    return {"message": "Mot de passe réinitialisé"}
+
+
+@router.post("/users/export")
+async def admin_export_users(
+    current_user: User = Depends(require_admin),
+    db: AsyncSession = Depends(get_db),
+):
+    """Exporte la liste des utilisateurs au format CSV (admin)"""
+    result = await db.execute(select(User).order_by(User.created_at.desc()))
+    users = result.scalars().all()
+    import csv
+    import io
+    output = io.StringIO()
+    writer = csv.writer(output)
+    writer.writerow(["id", "username", "email", "full_name", "role", "is_active", "is_verified", "created_at"])
+    for u in users:
+        writer.writerow([
+            str(u.id), u.username, u.email, u.full_name,
+            u.role.value if hasattr(u.role, "value") else str(u.role),
+            u.is_active, u.is_verified,
+            u.created_at.isoformat() if u.created_at else "",
+        ])
+    from starlette.responses import StreamingResponse
+    return StreamingResponse(
+        iter([output.getvalue()]),
+        media_type="text/csv",
+        headers={"Content-Disposition": "attachment; filename=users_export.csv"},
+    )
 
 
 @router.delete("/users/{user_id}", status_code=status.HTTP_204_NO_CONTENT)

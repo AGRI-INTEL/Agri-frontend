@@ -31,6 +31,8 @@ from api.models.sql.indicators import (
 )
 
 from api.models.sql.price_alert import PriceAlert, PriceAlertCondition
+from api.models.sql.reports import Report
+from api.models.sql.subscriptions import SubscriptionPlan, UserSubscription, Invoice
 
 # Extend the User model with additional relationships and RBAC methods
 extend_user_model()

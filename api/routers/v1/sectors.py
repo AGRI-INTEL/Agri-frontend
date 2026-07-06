@@ -25,7 +25,7 @@ from api.models.sql.indicators import (
 from config.database import get_db
 from services.calculations import CalculationService
 from services.alerts import AlerteService
-from middleware.auth import get_current_user
+from src.services.auth import get_current_user
 from api.models.sql.user import User
 
 logger = logging.getLogger(__name__)
@@ -61,7 +61,7 @@ class ActorBase(BaseModel):
     
     # Informations démographiques
     age: Optional[int] = Field(None, ge=18, le=100)
-    genre: Optional[str] = Field(None, regex="^[MFA]$")  # M/F/A (Autre)
+    genre: Optional[str] = Field(None, pattern="^[MFA]$")  # M/F/A (Autre)
     niveau_education: Optional[str] = None
     taille_menage: Optional[int] = Field(None, ge=1, le=20)
     
@@ -98,7 +98,7 @@ class ActorUpdate(BaseModel):
     latitude: Optional[float] = Field(None, ge=-90, le=90)
     longitude: Optional[float] = Field(None, ge=-180, le=180)
     age: Optional[int] = Field(None, ge=18, le=100)
-    genre: Optional[str] = Field(None, regex="^[MFA]$")
+    genre: Optional[str] = Field(None, pattern="^[MFA]$")
     niveau_education: Optional[str] = None
     taille_menage: Optional[int] = Field(None, ge=1, le=20)
     statut_matrimonial: Optional[str] = None

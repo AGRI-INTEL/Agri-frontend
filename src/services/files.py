@@ -5,17 +5,15 @@ Service de gestion des fichiers avec support multi-stockage
 import asyncio
 import os
 import uuid
-import hashlib
-import mimetypes
+import logging
 from io import BytesIO
-from datetime import datetime, timedelta, timezone
-from typing import Optional, List, Dict, Any, BinaryIO, Tuple
+from datetime import datetime, timezone
+from typing import Optional, List, Dict, Any, Tuple
 from pathlib import Path
 
 from fastapi import UploadFile, HTTPException, status
 from sqlalchemy.ext.asyncio import AsyncSession
 from sqlalchemy import select, func, and_, or_
-from sqlalchemy.orm import selectinload
 import aiofiles
 # Make PIL and magic library imports optional
 try:
@@ -41,9 +39,8 @@ except ImportError:
     MAGIC_AVAILABLE = False
 
 from config.config import get_settings
-from config.database import get_db
 from api.models.sql.files import (
-    FileShare, FileAttachment, FileFolder, FileFolderItem,
+    FileShare, FileFolder, FileFolderItem,
     FilePermission, FileActivity, FileType, FileStatus, StorageProvider
 )
 from api.models.sql.user import User
@@ -53,6 +50,7 @@ from api.schemas.files import (
 )
 
 settings = get_settings()
+logger = logging.getLogger(__name__)
 
 
 class FileValidationError(Exception):
@@ -92,29 +90,31 @@ class StorageService:
             'other': 10 * 1024 * 1024      # 10MB
         }
     
-    def validate_file(self, file: UploadFile, file_type: FileType) -> None:
+    def validate_file(self, file: UploadFile, file_type: FileType, content: bytes | None = None) -> None:
         """Valide un fichier avant upload"""
         
-        # Vérifier la taille
+        # Vérifier la taille (from UploadFile.size or actual bytes)
         max_size = self.max_sizes.get(file_type.value, self.max_sizes['other'])
-        if file.size and file.size > max_size:
+        actual_size = file.size or (len(content) if content else 0)
+        if actual_size > max_size:
             raise FileValidationError(f"Fichier trop volumineux. Taille maximale: {max_size // (1024*1024)}MB")
         
         # Vérifier le type MIME
+        mime = (file.content_type or "application/octet-stream").split(";")[0].strip()
         allowed_mimes = []
         for mime_list in self.allowed_types.values():
             allowed_mimes.extend(mime_list)
         
-        if file.content_type not in allowed_mimes:
-            raise FileValidationError(f"Type de fichier non autorisé: {file.content_type}")
+        if mime not in allowed_mimes:
+            raise FileValidationError(f"Type de fichier non autorisé: {mime}")
         
         # Vérifier l'extension
-        file_ext = Path(file.filename).suffix.lower()
-        dangerous_extensions = [
+        file_ext = Path(file.filename or "file").suffix.lower()
+        dangerous_extensions = {
             '.exe', '.bat', '.cmd', '.scr', '.pif', '.vbs', '.js',
             '.php', '.php3', '.php4', '.php5', '.phtml',
             '.asp', '.aspx', '.jsp', '.cgi', '.sh', '.py', '.rb', '.pl',
-        ]
+        }
         if file_ext in dangerous_extensions:
             raise FileValidationError(f"Extension de fichier dangereuse: {file_ext}")
     
@@ -136,16 +136,17 @@ class StorageService:
         
         return f"{user_id}_{timestamp}_{file_uuid}{file_ext}"
     
-    async def save_file(self, file: UploadFile, filename: str) -> Tuple[str, str]:
+    async def save_file(self, file: UploadFile, filename: str, content: bytes | None = None) -> Tuple[str, str]:
         """Save a file either locally or to Cloudinary."""
+        if content is None:
+            content = await file.read()
         if self.cloudinary_enabled:
-            return await self._save_file_cloudinary(file, filename)
+            return await self._save_file_cloudinary(filename, content)
 
-        return await self._save_file_local(file, filename)
+        return await self._save_file_local(filename, content)
 
-    async def _save_file_local(self, file: UploadFile, filename: str) -> Tuple[str, str]:
+    async def _save_file_local(self, filename: str, content: bytes) -> Tuple[str, str]:
         """Sauvegarde un fichier sur le disque"""
-        # Créer la structure de dossiers par date
         date_path = datetime.now().strftime("%Y/%m/%d")
         full_dir = self.upload_dir / date_path
         full_dir.mkdir(parents=True, exist_ok=True)
@@ -153,20 +154,17 @@ class StorageService:
         file_path = full_dir / filename
         storage_url = f"/static/{date_path}/{filename}"
         
-        # Sauvegarder le fichier
         async with aiofiles.open(file_path, 'wb') as out_file:
-            content = await file.read()
             await out_file.write(content)
         
         return str(file_path), storage_url
 
-    async def _save_file_cloudinary(self, file: UploadFile, filename: str) -> Tuple[str, str]:
+    async def _save_file_cloudinary(self, filename: str, content: bytes) -> Tuple[str, str]:
         """Sauvegarde un fichier sur Cloudinary."""
         if not CLOUDINARY_AVAILABLE:
             raise FileValidationError("Cloudinary n'est pas installé sur le serveur")
 
-        file_bytes = await file.read()
-        file_stream = BytesIO(file_bytes)
+        file_stream = BytesIO(content)
         public_id = f"{settings.CLOUDINARY_UPLOAD_FOLDER}/{filename.rsplit('.', 1)[0]}"
 
         try:
@@ -197,7 +195,7 @@ class StorageService:
                 os.remove(file_path)
                 return True
         except Exception as e:
-            print(f"Erreur suppression fichier {file_path}: {e}")
+            logger.error("Erreur suppression fichier %s: %s", file_path, e)
         
         return False
 
@@ -213,7 +211,7 @@ class StorageService:
             )
             return True
         except Exception as e:
-            print(f"Erreur suppression Cloudinary {public_id}: {e}")
+            logger.error("Erreur suppression Cloudinary %s: %s", public_id, e)
             return False
     
     def extract_metadata(self, file_path: str, mime_type: str) -> Dict[str, Any]:
@@ -234,7 +232,7 @@ class StorageService:
                 metadata.update(self._extract_audio_metadata(file_path))
         
         except Exception as e:
-            print(f"Erreur extraction métadonnées: {e}")
+            logger.error("Erreur extraction métadonnées: %s", e)
         
         return metadata
     
@@ -337,17 +335,13 @@ class FileService:
         """Upload un fichier"""
         
         try:
-            # Déterminer le type de fichier
-            file_type = self.storage.determine_file_type(file.content_type)
+            content = await file.read()
+            mime = (file.content_type or "application/octet-stream").split(";")[0].strip()
+            file_type = self.storage.determine_file_type(mime)
+            self.storage.validate_file(file, file_type, content)
             
-            # Valider le fichier
-            self.storage.validate_file(file, file_type)
-            
-            # Générer le nom de fichier
             filename = self.storage.generate_filename(file.filename, user_id)
-            
-            # Sauvegarder le fichier
-            file_path, storage_url = await self.storage.save_file(file, filename)
+            file_path, storage_url = await self.storage.save_file(file, filename, content)
             storage_provider = StorageProvider.CLOUDINARY if self.storage.cloudinary_enabled else StorageProvider.LOCAL
             
             # Extraire les métadonnées uniquement pour les fichiers locaux

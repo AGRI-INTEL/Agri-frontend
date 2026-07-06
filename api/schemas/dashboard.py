@@ -12,6 +12,14 @@ class KPIStats(BaseModel):
     countries_monitored: int
     active_farmers: Optional[int] = 0
     hectares: Optional[float] = 0
+    is_estimated: Optional[bool] = True
+
+class WeeklySummary(BaseModel):
+    alerts_count: int
+    vegetal_change: float
+    mais_price_change: float
+    new_members: Optional[int] = 0
+    posts_count: Optional[int] = 0
 
 class ProductionDataPoint(BaseModel):
     country: str

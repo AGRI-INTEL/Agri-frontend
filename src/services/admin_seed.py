@@ -1,21 +1,23 @@
 """
 Default administrator account seeding.
 """
+import logging
 
-from sqlalchemy.exc import IntegrityError
 
 from api.models.sql.user import User, UserRole
 from config.config import get_settings
 from config.database import async_session_maker
 from src.services.auth import AuthService
 
+logger = logging.getLogger(__name__)
+
 
 async def ensure_default_admin_user() -> None:
     """Create or update the default administrator account."""
     settings = get_settings()
 
-    if settings.DEFAULT_ADMIN_PASSWORD == "CHANGE_ME":
-        print("⚠️ DEFAULT_ADMIN_PASSWORD not configured — skipping admin seed")
+    if not settings.DEFAULT_ADMIN_PASSWORD or settings.DEFAULT_ADMIN_PASSWORD == "CHANGE_ME":
+        logger.warning("DEFAULT_ADMIN_PASSWORD not configured — skipping admin seed")
         return
 
     async with async_session_maker() as db:
@@ -35,7 +37,7 @@ async def ensure_default_admin_user() -> None:
             existing_admin.full_name = settings.DEFAULT_ADMIN_FULL_NAME
 
             await db.commit()
-            print(f"✅ Admin account updated: {settings.DEFAULT_ADMIN_EMAIL}")
+            logger.info("Admin account updated: %s", settings.DEFAULT_ADMIN_EMAIL)
             return
 
         admin_data = {
@@ -51,7 +53,7 @@ async def ensure_default_admin_user() -> None:
             user = User(**admin_data, hashed_password=hashed_password)
             db.add(user)
             await db.commit()
-            print(f"✅ Default admin account created: {settings.DEFAULT_ADMIN_EMAIL}")
+            logger.info("Default admin account created: %s", settings.DEFAULT_ADMIN_EMAIL)
         except Exception as e:
             await db.rollback()
-            print(f"❌ Failed to seed admin: {e}")
+            logger.error("Failed to seed admin: %s", e)
