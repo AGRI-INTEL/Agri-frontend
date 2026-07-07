@@ -9,7 +9,7 @@ from typing import List, Dict, Any, Optional
 from datetime import datetime, timezone
 
 from src.services.auth import get_current_active_user
-from src.services.chatbot import process_chat_message, get_chat_suggestions, _get_chatbot
+from src.services.chatbot import process_chat_message, get_chat_suggestions, _get_agent
 from api.models.sql.user import User
 
 router = APIRouter()
@@ -177,13 +177,10 @@ async def send_conversation_message(
         conversation_id = "default"
     _ensure_conv(str(current_user.id), conversation_id)
 
-    if body.provider:
-        allowed = {"kimi", "deepseek", "openai"}
-        if body.provider in allowed:
-            _get_chatbot().switch_provider(body.provider, str(current_user.id))
+    provider = body.provider if body.provider in {"kimi", "deepseek", "openai"} else "kimi"
 
     chat_message = ChatMessage(message=body.content)
-    return await chat_with_agribot(chat_message, current_user)
+    return await chat_with_agribot(chat_message, current_user, provider)
 
 
 @router.post("/messages", response_model=ChatResponse)
@@ -197,23 +194,20 @@ async def send_message(
         conv_id = "default"
     _ensure_conv(user_id, conv_id)
 
-    if body.provider:
-        allowed = {"kimi", "deepseek", "openai"}
-        if body.provider in allowed:
-            _get_chatbot().switch_provider(body.provider, user_id)
-
+    provider = body.provider if body.provider in {"kimi", "deepseek", "openai"} else "kimi"
     chat_message = ChatMessage(message=body.content)
-    return await chat_with_agribot(chat_message, current_user)
+    return await chat_with_agribot(chat_message, current_user, provider)
 
 
 @router.post("/chat", response_model=ChatResponse)
 async def chat_with_agribot(
     chat_message: ChatMessage,
-    current_user: User = Depends(get_current_active_user)
+    current_user: User = Depends(get_current_active_user),
+    provider: Optional[str] = None,
 ):
     try:
         user_id = str(current_user.id)
-        response = await process_chat_message(chat_message.message, user_id)
+        response = await process_chat_message(chat_message.message, user_id, provider)
 
         ts = response["timestamp"]
         store = _get_user_store(user_id)
@@ -274,7 +268,7 @@ async def clear_chat_history(
         del _chat_store[user_id]
     if user_id in _conv_meta:
         del _conv_meta[user_id]
-    _get_chatbot().clear_memory(user_id)
+    _get_agent().clear_memory(user_id)
     return {"message": "Historique effacé avec succès"}
 
 
@@ -286,7 +280,7 @@ async def switch_llm_provider(
     allowed = {"kimi", "deepseek", "openai"}
     if body.provider not in allowed:
         raise HTTPException(status_code=400, detail=f"Provider invalide. Choisir parmi: {allowed}")
-    _get_chatbot().switch_provider(body.provider)
+    _get_agent().switch_provider(body.provider)
     return {"message": f"Provider basculé vers: {body.provider}"}
 
 
@@ -296,20 +290,23 @@ async def get_chatbot_status(
 ):
     from config.config import get_settings
     settings = get_settings()
-    chatbot = _get_chatbot()
+    agent = _get_agent()
 
     return {
         "status": "active",
-        "provider": chatbot.llm.model if chatbot.llm.available else "kimi",
-        "ai_enabled": chatbot.llm.available,
+        "provider": agent.llm.model if agent.llm.available else "kimi",
+        "ai_enabled": agent.llm.available,
+        "agent_version": "ReAct Agent v2",
+        "max_iterations": agent.max_iterations,
         "kimi_configured": bool(settings.OPENROUTER_API_KEY),
         "deepseek_configured": bool(settings.DEEPSEEK_API_KEY or settings.OPENROUTER_API_KEY),
         "openai_configured": bool(settings.OPENAI_API_KEY),
         "features": [
-            "Requêtes SQL automatiques",
+            "Agent autonome avec ReAct loop",
+            "Accès complet à la base de données",
+            "Requêtes SQL dynamiques",
             "Analyse de données agricoles",
-            "Prédictions intelligentes",
-            "Conseils personnalisés",
+            "Base de connaissances intégrée",
             "Switch Kimi / DeepSeek / OpenAI",
         ],
     }

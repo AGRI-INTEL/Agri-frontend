@@ -144,7 +144,7 @@ class Settings(BaseSettings):
     # OpenRouter (Kimi + DeepSeek)
     OPENROUTER_API_KEY: Optional[str] = None
     OPENROUTER_BASE_URL: str = "https://openrouter.ai/api/v1"
-    KIMI_MODEL: str = "moonshotai/moonshot-v1-8k"
+    KIMI_MODEL: str = "moonshotai/kimi-k2"
     DEEPSEEK_MODEL: str = "deepseek/deepseek-chat"
     DEEPSEEK_API_KEY: Optional[str] = None
     DEFAULT_LLM_PROVIDER: str = "kimi"  # "kimi" | "deepseek" | "openai"
